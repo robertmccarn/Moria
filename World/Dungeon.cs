@@ -1,255 +1,154 @@
-using System.Collections.Generic;
+using Moria.Core;
+using Moria.Entities;
 
 namespace Moria.World;
 
-public class Dungeon
+public sealed class Dungeon
 {
     public const int Width = 80;
-    public const int Height = 24;
+    public const int Height = 22;
 
-    private readonly CaveTile[,] tiles = new CaveTile[Height, Width];
-
-    private readonly Random random = new();
-
+    private readonly Tile[,] tiles = new Tile[Height, Width];
+    private readonly Random random;
     private readonly List<Room> rooms = new();
+    public List<Monster> Monsters { get; } = new();
+    public Position UpStairs { get; private set; }
+    public Position DownStairs { get; private set; }
 
-    public Dungeon()
+    public Dungeon(int seed)
     {
-        FillWithRock();
+        random = new Random(seed);
+        for (int y = 0; y < Height; y++)
+            for (int x = 0; x < Width; x++)
+                tiles[y, x] = new Tile();
     }
 
-    public void GenerateCave()
+    public Tile this[Position p] => tiles[p.Y, p.X];
+    public bool IsInside(Position p) => p.Y > 0 && p.Y < Height - 1 && p.X > 0 && p.X < Width - 1;
+    public bool IsWalkable(Position p) => IsInside(p) && this[p].Type is TileType.Floor or TileType.Door or TileType.StairsUp or TileType.StairsDown or TileType.Trap;
+    public Monster? MonsterAt(Position p) => Monsters.FirstOrDefault(m => m.Alive && m.Position == p);
+
+    public void Generate(int level)
     {
-        FillWithRock();
         rooms.Clear();
+        Monsters.Clear();
+        for (int y = 0; y < Height; y++)
+            for (int x = 0; x < Width; x++)
+                tiles[y, x] = new Tile();
 
-        GenerateRooms();
-        ConnectRooms();
-        PlaceBoundary();
+        for (int i = 0; i < 12; i++)
+        {
+            int w = random.Next(5, 14);
+            int h = random.Next(3, 7);
+            int x = random.Next(2, Width - w - 2);
+            int y = random.Next(2, Height - h - 2);
+            Room room = new(y, x, h, w);
+            if (rooms.Any(r => r.Intersects(room))) continue;
+            CarveRoom(room);
+            if (rooms.Count > 0) Connect(rooms[^1].Center, room.Center);
+            rooms.Add(room);
+        }
+
+        if (rooms.Count == 0) throw new InvalidOperationException("Dungeon generation failed.");
+        UpStairs = rooms[0].Center;
+        DownStairs = rooms[^1].Center;
+        this[UpStairs].Type = TileType.StairsUp;
+        this[DownStairs].Type = TileType.StairsDown;
+
+        int monsterCount = Math.Min(4 + level * 2, 18);
+        for (int i = 0; i < monsterCount; i++) SpawnMonster(level);
+        RevealAround(UpStairs, 8);
     }
 
-    private void GenerateRooms()
+    private void CarveRoom(Room r)
     {
-        for (int i = 0; i < 10; i++)
+        for (int y = r.Y; y < r.Y + r.Height; y++)
+            for (int x = r.X; x < r.X + r.Width; x++)
+                tiles[y, x].Type = TileType.Floor;
+        for (int y = r.Y - 1; y <= r.Y + r.Height; y++)
+            for (int x = r.X - 1; x <= r.X + r.Width; x++)
+                if (IsInside(new Position(y, x)) && tiles[y, x].Type == TileType.Rock)
+                    tiles[y, x].Type = TileType.Wall;
+    }
+
+    private void Connect(Position a, Position b)
+    {
+        Position p = a;
+        bool horizontalFirst = random.Next(2) == 0;
+        if (horizontalFirst)
         {
-            int y = RandomInt(15) + 4;
-            int x = RandomInt(56) + 11;
-
-            BuildRoom(y, x);
-
-            rooms.Add(new Room(y, x));
+            while (p.X != b.X) { p = new Position(p.Y, p.X + Math.Sign(b.X - p.X)); CarveCorridor(p); }
+            while (p.Y != b.Y) { p = new Position(p.Y + Math.Sign(b.Y - p.Y), p.X); CarveCorridor(p); }
+        }
+        else
+        {
+            while (p.Y != b.Y) { p = new Position(p.Y + Math.Sign(b.Y - p.Y), p.X); CarveCorridor(p); }
+            while (p.X != b.X) { p = new Position(p.Y, p.X + Math.Sign(b.X - p.X)); CarveCorridor(p); }
         }
     }
 
-    private void ConnectRooms()
+    private void CarveCorridor(Position p)
     {
-        for (int i = 0; i < rooms.Count - 1; i++)
+        if (!IsInside(p)) return;
+        this[p].Type = TileType.Floor;
+        foreach (Position n in Neighbors(p))
+            if (IsInside(n) && this[n].Type == TileType.Rock) this[n].Type = TileType.Wall;
+    }
+
+    private void SpawnMonster(int level)
+    {
+        for (int tries = 0; tries < 100; tries++)
         {
-            ConnectRoom(
-                rooms[i].Y,
-                rooms[i].X,
-                rooms[i + 1].Y,
-                rooms[i + 1].X);
+            Room r = rooms[random.Next(rooms.Count)];
+            Position p = new(random.Next(r.Y, r.Y + r.Height), random.Next(r.X, r.X + r.Width));
+            if (p == UpStairs || p == DownStairs || MonsterAt(p) != null) continue;
+            string[] names = { "Kobold", "Orc", "Giant Rat", "Skeleton", "Wolf", "Troll" };
+            string name = names[Math.Min(level / 3, names.Length - 1)];
+            char symbol = name[0] == 'G' ? 'r' : char.ToLower(name[0]);
+            int hp = 4 + level * 2 + random.Next(level + 3);
+            Monsters.Add(new Monster(name, symbol, p, hp, 8 + level, 2 + level, level, 10 * level));
+            return;
         }
     }
 
-    private void ConnectRoom(int y1, int x1, int y2, int x2)
+    public void RevealAround(Position center, int radius)
     {
-        int currentY = y1;
-        int currentX = x1;
-
-        while (currentY != y2 || currentX != x2)
-        {
-            Direction direction = CorrectDirection(
-                currentY,
-                currentX,
-                y2,
-                x2);
-
-            int nextY = currentY;
-            int nextX = currentX;
-
-            Move(ref nextY, ref nextX, direction);
-
-            if (!IsInsideDungeon(nextY, nextX))
+        for (int y = center.Y - radius; y <= center.Y + radius; y++)
+            for (int x = center.X - radius; x <= center.X + radius; x++)
             {
-                break;
+                Position p = new(y, x);
+                if (IsInside(p) && Math.Abs(y - center.Y) + Math.Abs(x - center.X) <= radius) this[p].Seen = true;
             }
-
-            currentY = nextY;
-            currentX = nextX;
-
-            CarveTile(currentY, currentX);
-        }
     }
 
-    private void FillWithRock()
+    public IEnumerable<Position> Neighbors(Position p)
     {
+        yield return new Position(p.Y - 1, p.X);
+        yield return new Position(p.Y + 1, p.X);
+        yield return new Position(p.Y, p.X - 1);
+        yield return new Position(p.Y, p.X + 1);
+    }
+
+    public void Draw(Player player)
+    {
+        Console.SetCursorPosition(0, 0);
         for (int y = 0; y < Height; y++)
         {
             for (int x = 0; x < Width; x++)
             {
-                tiles[y, x] = new CaveTile
-                {
-                    IsOpen = false,
-                    IsMemorized = false,
-                    IsLit = false,
-                    Symbol = '#'
-                };
+                Position p = new(y, x);
+                char c = tiles[y, x].Seen ? tiles[y, x].Symbol : ' ';
+                if (player.Position == p) c = '@';
+                else if (MonsterAt(p) is Monster m) c = m.Symbol;
+                Console.Write(c);
             }
-        }
-    }
-
-    private void BuildRoom(int y, int x)
-    {
-        int yHeight = y - RandomInt(4);
-        int yDepth = y + RandomInt(3);
-
-        int xLeft = x - RandomInt(11);
-        int xRight = x + RandomInt(11);
-
-        for (int currentY = yHeight; currentY <= yDepth; currentY++)
-        {
-            for (int currentX = xLeft; currentX <= xRight; currentX++)
-            {
-                CarveTile(currentY, currentX);
-            }
-        }
-
-        for (int currentY = yHeight - 1; currentY <= yDepth + 1; currentY++)
-        {
-            tiles[currentY, xLeft - 1].Symbol = '#';
-            tiles[currentY, xRight + 1].Symbol = '#';
-        }
-
-        for (int currentX = xLeft; currentX <= xRight; currentX++)
-        {
-            tiles[yHeight - 1, currentX].Symbol = '#';
-            tiles[yDepth + 1, currentX].Symbol = '#';
-        }
-    }
-
-    private void CarveTile(int y, int x)
-    {
-        tiles[y, x].IsOpen = true;
-        tiles[y, x].IsLit = true;
-        tiles[y, x].Symbol = '.';
-    }
-
-    private Direction CorrectDirection(
-        int y1,
-        int x1,
-        int y2,
-        int x2)
-    {
-        Direction verticalDirection;
-        Direction horizontalDirection;
-
-        if (y1 < y2)
-        {
-            verticalDirection = Direction.Down;
-        }
-        else if (y1 == y2)
-        {
-            verticalDirection = Direction.None;
-        }
-        else
-        {
-            verticalDirection = Direction.Up;
-        }
-
-        if (x1 < x2)
-        {
-            horizontalDirection = Direction.Right;
-        }
-        else if (x1 == x2)
-        {
-            horizontalDirection = Direction.None;
-        }
-        else
-        {
-            horizontalDirection = Direction.Left;
-        }
-
-        if (verticalDirection == Direction.None)
-        {
-            return horizontalDirection;
-        }
-
-        if (horizontalDirection == Direction.None)
-        {
-            return verticalDirection;
-        }
-
-        if (random.Next(2) == 0)
-        {
-            return verticalDirection;
-        }
-
-        return horizontalDirection;
-    }
-
-    private void Move(
-        ref int y,
-        ref int x,
-        Direction direction)
-    {
-        if (direction == Direction.Up)
-        {
-            y--;
-        }
-        else if (direction == Direction.Down)
-        {
-            y++;
-        }
-        else if (direction == Direction.Left)
-        {
-            x--;
-        }
-        else if (direction == Direction.Right)
-        {
-            x++;
-        }
-    }
-
-    private bool IsInsideDungeon(int y, int x)
-    {
-        return y >= 0 &&
-               y < Height &&
-               x >= 0 &&
-               x < Width;
-    }
-
-    private void PlaceBoundary()
-    {
-        for (int y = 0; y < Height; y++)
-        {
-            tiles[y, 0].Symbol = '#';
-            tiles[y, Width - 1].Symbol = '#';
-        }
-
-        for (int x = 0; x < Width; x++)
-        {
-            tiles[0, x].Symbol = '#';
-            tiles[Height - 1, x].Symbol = '#';
-        }
-    }
-
-    private int RandomInt(int maximum)
-    {
-        return random.Next(1, maximum + 1);
-    }
-
-    public void Draw()
-    {
-        for (int y = 0; y < Height; y++)
-        {
-            for (int x = 0; x < Width; x++)
-            {
-                Console.Write(tiles[y, x].Symbol);
-            }
-
             Console.WriteLine();
         }
     }
+}
+
+public sealed record Room(int Y, int X, int Height, int Width)
+{
+    public Position Center => new(Y + Height / 2, X + Width / 2);
+    public bool Intersects(Room other) => X - 1 < other.X + other.Width && X + Width + 1 > other.X && Y - 1 < other.Y + other.Height && Y + Height + 1 > other.Y;
 }
