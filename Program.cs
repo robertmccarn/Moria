@@ -1,4 +1,13 @@
-using Moria;
+using System.Windows.Forms;
 
-Game game = new();
-game.Run();
+namespace Moria;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main()
+    {
+        ApplicationConfiguration.Initialize();
+        Application.Run(new Game());
+    }
+}
