@@ -1,0 +1,14 @@
+C:\Users\Robert\Documents\Moria\bin\Debug\net10.0\Moria.exe
+C:\Users\Robert\Documents\Moria\bin\Debug\net10.0\Moria.deps.json
+C:\Users\Robert\Documents\Moria\bin\Debug\net10.0\Moria.runtimeconfig.json
+C:\Users\Robert\Documents\Moria\bin\Debug\net10.0\Moria.dll
+C:\Users\Robert\Documents\Moria\bin\Debug\net10.0\Moria.pdb
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.AssemblyInfoInputs.cache
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.AssemblyInfo.cs
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.csproj.CoreCompileInputs.cache
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.dll
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\refint\Moria.dll
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.pdb
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\Moria.genruntimeconfig.cache
+C:\Users\Robert\Documents\Moria\obj\Debug\net10.0\ref\Moria.dll
