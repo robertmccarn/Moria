@@ -15,12 +15,32 @@ public sealed class Player : Actor
     public int Mana { get; set; } = 5;
     public int MaxMana { get; set; } = 5;
     public int DungeonLevel { get; set; } = 1;
+    public int RunsCompleted { get; set; }
+    public int PermanentGold { get; set; }
     public List<Item> Inventory { get; } = new();
+    public Gear? Weapon { get; private set; }
+    public Gear? Armor { get; private set; }
+    public Gear? Ring { get; private set; }
 
-    public Player(string name, Position position) : base(name, '@', position, 20, 10, 4, 1)
+    public int TotalAttack => Attack + (Weapon?.AttackBonus ?? 0) + (Ring?.AttackBonus ?? 0);
+    public int TotalArmorClass => ArmorClass + (Armor?.ArmorBonus ?? 0) + (Ring?.ArmorBonus ?? 0);
+    public int TotalMaxHp => MaxHp + (Armor?.MaxHpBonus ?? 0) + (Ring?.MaxHpBonus ?? 0);
+
+    public Player(string name, Position position) : base(name, 'W', position, 24, 10, 4, 1)
     {
-        Inventory.Add(new Item("Short Sword", '/', 12, 1, 5));
         Inventory.Add(new Item("Rations", '%', 5, 0, 0, ItemKind.Food));
+        Weapon = new Gear("Iron Longsword", '†', GearSlot.Weapon, 2, 0, 0, 35);
+    }
+
+    public void Equip(Gear gear)
+    {
+        switch (gear.Slot)
+        {
+            case GearSlot.Weapon: Weapon = gear; break;
+            case GearSlot.Armor: Armor = gear; break;
+            case GearSlot.Ring: Ring = gear; break;
+        }
+        Hp = Math.Min(Hp, TotalMaxHp);
     }
 
     public void GainExperience(int amount)
@@ -32,7 +52,7 @@ public sealed class Player : Actor
             Experience -= needed;
             Level++;
             MaxHp += 5;
-            Hp = MaxHp;
+            Hp = TotalMaxHp;
             MaxMana++;
             Mana = MaxMana;
             Attack++;
