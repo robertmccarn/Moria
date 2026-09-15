@@ -168,8 +168,11 @@ public sealed partial class Game : Form
             player.Hp -= damage;
             message = $"A trap wounds you for {damage}!";
         }
-        else if (tile.Gear != null) message = $"You see {tile.Gear.Name}. Press G to loot it.";
-        else if (tile.HasItem) message = "You see a Potion of Healing. Press G to loot it.";
+        else if (tile.GearLoot.Count > 0 || tile.PotionCount > 0)
+        {
+            int lootCount = tile.GearLoot.Count + tile.PotionCount;
+            message = $"You see {lootCount} loot item{(lootCount == 1 ? "" : "s")}. Press G to collect all.";
+        }
         else if (target == dungeon.DownStairs) message = "Press . to descend deeper into Moria.";
     }
 
@@ -198,10 +201,16 @@ public sealed partial class Game : Form
     private void DropLoot(Position position, int level)
     {
         Tile tile = dungeon[position];
-        if (tile.Gear != null || tile.HasItem) return;
         int roll = random.Next(100);
-        if (roll < 45) tile.Gear = CreateLoot(level);
-        else if (roll < 70) tile.HasItem = true;
+        if (roll < 45)
+        {
+            Gear gear = CreateLoot(level);
+            tile.GearLoot.Add(gear);
+        }
+        else if (roll < 70)
+        {
+            tile.PotionCount++;
+        }
     }
 
     private Gear CreateLoot(int level)
@@ -262,23 +271,32 @@ public sealed partial class Game : Form
     private void Pickup()
     {
         Tile tile = dungeon[player.Position];
-        if (tile.Gear != null)
+        int gearCount = tile.GearLoot.Count;
+        int potionCount = tile.PotionCount;
+
+        if (gearCount == 0 && potionCount == 0)
         {
-            Gear gear = tile.Gear;
-            tile.Gear = null;
+            message = "There is nothing here.";
+            return;
+        }
+
+        foreach (Gear gear in tile.GearLoot)
+        {
             player.GearInventory.Add(gear);
-            if (ShouldEquip(gear)) { player.Equip(gear); message = $"Looted and equipped {gear.Name}: {GearSummary(gear)}"; }
-            else message = $"Looted {gear.Name}. Press R to equip the strongest gear.";
-            return;
+            if (ShouldEquip(gear)) player.Equip(gear);
         }
-        if (tile.HasItem)
-        {
-            tile.HasItem = false;
+
+        tile.GearLoot.Clear();
+
+        for (int i = 0; i < potionCount; i++)
             player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
-            message = "Looted a Potion of Healing. Press Q to drink it.";
-            return;
-        }
-        message = "There is nothing here.";
+
+        tile.PotionCount = 0;
+
+        List<string> lootParts = new();
+        if (gearCount > 0) lootParts.Add($"{gearCount} gear");
+        if (potionCount > 0) lootParts.Add($"{potionCount} potion{(potionCount == 1 ? "" : "s")}");
+        message = $"Collected all loot: {string.Join(" and ", lootParts)}.";
     }
 
     private bool ShouldEquip(Gear gear)
