@@ -120,10 +120,7 @@ public sealed partial class Game
         Point[] diamond = [new Point(rect.X + rect.Width / 2, rect.Y + 3), new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2), new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3), new Point(rect.X + 4, rect.Y + rect.Height / 2)];
         g.FillPolygon(brush, diamond);
         g.DrawPolygon(outline, diamond);
-        if (tileHasMultipleLoot) { }
     }
-
-    private bool tileHasMultipleLoot => false;
 
     private void DrawDeathOverlay(Graphics g)
     {
