@@ -37,10 +37,12 @@ public sealed class Palette
     {
         Color best = colors[0];
         double distance = double.MaxValue;
-        foreach (Color candidate in colors)
+        for (int i = 0; i < colors.Count; i++)
         {
-            double d = SnesColor.Distance(color, candidate);
-            if (d < distance) { distance = d; best = candidate; }
+            // Palette index 0 is transparent and should not absorb opaque terrain pixels.
+            if (i == 0 && color.A != 0) continue;
+            double d = SnesColor.Distance(color, colors[i]);
+            if (d < distance) { distance = d; best = colors[i]; }
         }
         return best;
     }
@@ -52,6 +54,7 @@ public sealed class Palette
         double distance = double.MaxValue;
         for (int i = 0; i < colors.Count; i++)
         {
+            if (i == 0 && color.A != 0) continue;
             double d = SnesColor.Distance(color, colors[i]);
             if (d < distance) { distance = d; best = i; }
         }
@@ -130,8 +133,8 @@ public sealed class Sprite
     {
         Bitmap bitmap = new(WidthInTiles * 8, HeightInTiles * 8, PixelFormat.Format32bppArgb);
         using Graphics g = Graphics.FromImage(bitmap);
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
         for (int i = 0; i < Tiles.Count; i++)
         {
             using Bitmap tile = Tiles[i].ToBitmap();
