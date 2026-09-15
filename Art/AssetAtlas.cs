@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using Moria.Core;
+using Moria.Entities;
 using Moria.Items;
 using Moria.World;
 
@@ -83,17 +84,9 @@ public sealed class AssetAtlas : IDisposable
             1 => 650 + (frame * 105),
             _ => 1150 + (frame * 105)
         };
-        int centerY = rowBlock == 0
-            ? 155
-            : 535;
-
-        int directionRow = monster.Name switch
-        {
-            _ => 0
-        };
-
+        int centerY = rowBlock == 0 ? 155 : 535;
         Rectangle source = new(centerX - 48, centerY - 48, 96, 88);
-        DrawSprite(g, monsters, source, destination, $"monster:{monster.Name}:{directionRow}:{frame}");
+        DrawSprite(g, monsters, source, destination, $"monster:{monster.Name}:{frame}");
     }
 
     public void DrawPotion(Graphics g, Rectangle destination)
@@ -140,9 +133,7 @@ public sealed class AssetAtlas : IDisposable
     {
         Bitmap crop = new(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(crop))
-        {
             g.DrawImage(sheet, new Rectangle(0, 0, source.Width, source.Height), source, GraphicsUnit.Pixel);
-        }
 
         Color tl = crop.GetPixel(0, 0);
         Color tr = crop.GetPixel(crop.Width - 1, 0);
