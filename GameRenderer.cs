@@ -10,18 +10,33 @@ namespace Moria;
 
 public sealed partial class Game
 {
-    private readonly SnesArtGenerator art = new();
+    private readonly AssetAtlas assets = new();
+    private Position lastRenderedPlayerPosition;
+    private Direction playerFacing = Direction.Down;
 
     private void DrawMap(Graphics g)
     {
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
+
+        if (lastRenderedPlayerPosition != player.Position)
+        {
+            int dy = player.Position.Y - lastRenderedPlayerPosition.Y;
+            int dx = player.Position.X - lastRenderedPlayerPosition.X;
+            if (Math.Abs(dx) >= Math.Abs(dy) && dx != 0)
+                playerFacing = dx > 0 ? Direction.Right : Direction.Left;
+            else if (dy != 0)
+                playerFacing = dy > 0 ? Direction.Down : Direction.Up;
+            lastRenderedPlayerPosition = player.Position;
+        }
+
         for (int y = 0; y < Dungeon.Height; y++)
         for (int x = 0; x < Dungeon.Width; x++)
         {
             Position p = new(y, x);
             Tile tile = dungeon[p];
             Rectangle rect = new(x * TileSize, y * TileSize, TileSize, TileSize);
+
             if (!tile.Seen)
             {
                 using SolidBrush unseen = new(Color.FromArgb(5, 7, 8));
@@ -29,84 +44,25 @@ public sealed partial class Game
                 continue;
             }
 
-            DrawTile(g, tile.Type, rect);
-            if (tile.GearLoot.Count > 0) DrawGear(g, rect, tile.GearLoot[^1]);
-            else if (tile.HasItem) DrawPotion(g, rect);
+            assets.DrawTile(g, tile.Type, rect, x, y);
+
+            if (tile.GearLoot.Count > 0)
+                assets.DrawGear(g, rect, tile.GearLoot[^1]);
+            else if (tile.HasItem)
+                assets.DrawPotion(g, rect);
 
             Monster? monster = dungeon.MonsterAt(p);
-            if (monster != null) DrawMonster(g, rect, monster);
+            if (monster != null)
+                assets.DrawMonster(g, rect, monster);
         }
 
-        DrawPlayer(g, new Rectangle(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize), player.Alive);
+        assets.DrawPlayer(
+            g,
+            new Rectangle(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize),
+            playerFacing,
+            player.Alive);
+
         if (runOver) DrawDeathOverlay(g);
-    }
-
-    private void DrawTile(Graphics g, TileType type, Rectangle rect)
-    {
-        TerrainType terrain = type switch
-        {
-            TileType.Wall => TerrainType.Wall,
-            TileType.Door => TerrainType.Wood,
-            TileType.Floor or TileType.StairsUp or TileType.StairsDown or TileType.Trap => TerrainType.Floor,
-            _ => TerrainType.Stone
-        };
-
-        Bitmap tile = art.GenerateTerrainTile(terrain);
-        g.DrawImage(tile, rect);
-
-        if (type is TileType.StairsUp or TileType.StairsDown or TileType.Trap)
-        {
-            using SolidBrush shadow = new(Color.FromArgb(105, 8, 8, 10));
-            g.FillRectangle(shadow, rect);
-            using Pen detail = new(Color.FromArgb(208, 204, 178), 2f);
-            int cx = rect.X + rect.Width / 2;
-            int cy = rect.Y + rect.Height / 2;
-            switch (type)
-            {
-                case TileType.StairsUp:
-                    for (int i = 0; i < 4; i++)
-                    {
-                        int yy = cy + 7 - i * 4;
-                        g.DrawLine(detail, cx - 7 + i * 2, yy, cx + 7, yy);
-                    }
-                    break;
-                case TileType.StairsDown:
-                    for (int i = 0; i < 4; i++)
-                    {
-                        int yy = cy - 7 + i * 4;
-                        g.DrawLine(detail, cx - 7, yy, cx + 7 - i * 2, yy);
-                    }
-                    break;
-                case TileType.Trap:
-                    g.DrawLine(detail, cx - 6, cy - 6, cx + 6, cy + 6);
-                    g.DrawLine(detail, cx + 6, cy - 6, cx - 6, cy + 6);
-                    break;
-            }
-        }
-    }
-
-    private void DrawPlayer(Graphics g, Rectangle rect, bool alive)
-    {
-        Bitmap sprite = art.GeneratePlayerSprite(alive);
-        g.DrawImage(sprite, rect);
-    }
-
-    private void DrawMonster(Graphics g, Rectangle rect, Monster monster)
-    {
-        Bitmap sprite = art.GenerateMonsterSprite(monster.Level);
-        g.DrawImage(sprite, rect);
-    }
-
-    private void DrawPotion(Graphics g, Rectangle rect)
-    {
-        Bitmap sprite = art.GeneratePotionSprite();
-        g.DrawImage(sprite, rect);
-    }
-
-    private void DrawGear(Graphics g, Rectangle rect, Gear gear)
-    {
-        Bitmap sprite = art.GenerateGearSprite(gear.Rarity);
-        g.DrawImage(sprite, rect);
     }
 
     private void DrawDeathOverlay(Graphics g)
@@ -141,7 +97,7 @@ public sealed partial class Game
         g.DrawString($"Weapon: {player.Weapon?.Name ?? "None"}     Armor: {player.Armor?.Name ?? "None"}     Ring: {player.Ring?.Name ?? "None"}", normal, accent, 12, y + 55);
         g.DrawString(message, normal, text, 12, y + 79);
         g.DrawString("Arrows/HJKL move   G loot   I inventory   R equip best   E eat   Q potion   . descend   S save   X/Esc quit", small, muted, 12, y + 105);
-        g.DrawString("Procedural SNES art • 8x8 tiles • RGB555 • 16-color palettes • Floyd-Steinberg dithering", small, muted, 12, y + 124);
+        g.DrawString("Authored SNES assets • 8x8 dungeon tiles • 32x32 character art • nearest-neighbor rendering", small, muted, 12, y + 124);
     }
 
     protected override void OnPaint(PaintEventArgs e)
