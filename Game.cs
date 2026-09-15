@@ -5,6 +5,7 @@ using Moria.Core;
 using Moria.Entities;
 using Moria.Items;
 using Moria.World;
+using WinFormsTimer = System.Windows.Forms.Timer;
 
 namespace Moria;
 
@@ -16,7 +17,7 @@ public sealed class Game : Form
     private const int StatusHeight = 112;
 
     private readonly Random random = new();
-    private readonly Timer redrawTimer;
+    private readonly WinFormsTimer redrawTimer;
     private Dungeon dungeon = null!;
     private Player player = null!;
     private string message = "Welcome to Moria.";
@@ -37,7 +38,7 @@ public sealed class Game : Form
         KeyDown += OnKeyDown;
         FormClosed += (_, _) => running = false;
 
-        redrawTimer = new Timer { Interval = 50 };
+        redrawTimer = new WinFormsTimer { Interval = 50 };
         redrawTimer.Tick += (_, _) => Invalidate();
         redrawTimer.Start();
         Shown += (_, _) => BeginGame();
