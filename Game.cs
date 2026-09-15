@@ -41,7 +41,7 @@ public sealed class Game
         if (name.Length == 0) name = "Adventurer";
 
         dungeon = new Dungeon(random.Next());
-        player = new Player(name, dungeon.UpStairs);
+        player = new Player(name, new Position(1, 1));
         dungeon.Generate(player.DungeonLevel);
         player.Position = dungeon.UpStairs;
     }
@@ -50,10 +50,10 @@ public sealed class Game
     {
         Direction direction = key switch
         {
-            ConsoleKey.Up or ConsoleKey.K => Direction.Up,
-            ConsoleKey.Down or ConsoleKey.J => Direction.Down,
-            ConsoleKey.Left or ConsoleKey.H => Direction.Left,
-            ConsoleKey.Right or ConsoleKey.L => Direction.Right,
+            ConsoleKey.UpArrow or ConsoleKey.K => Direction.Up,
+            ConsoleKey.DownArrow or ConsoleKey.J => Direction.Down,
+            ConsoleKey.LeftArrow or ConsoleKey.H => Direction.Left,
+            ConsoleKey.RightArrow or ConsoleKey.L => Direction.Right,
             ConsoleKey.Y => Direction.Up,
             ConsoleKey.U => Direction.Right,
             ConsoleKey.B => Direction.Left,
