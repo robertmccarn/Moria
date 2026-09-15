@@ -1,6 +1,5 @@
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 
 namespace Moria.Art;
 
@@ -22,10 +21,7 @@ public sealed class Palette
     public IReadOnlyList<Color> Colors => colors;
     public int Count => colors.Count;
 
-    public Palette(Color transparent)
-    {
-        colors.Add(SnesColor.ToRgb555(transparent));
-    }
+    public Palette(Color transparent) => colors.Add(SnesColor.ToRgb555(transparent));
 
     public int AddColor(Color color)
     {
@@ -39,7 +35,6 @@ public sealed class Palette
 
     public Color GetNearestColor(Color color)
     {
-        if (colors.Count == 0) return Color.Black;
         Color best = colors[0];
         double distance = double.MaxValue;
         foreach (Color candidate in colors)
@@ -64,7 +59,7 @@ public sealed class Palette
     }
 }
 
-/// <summary>An 8x8 SNES-style pixel tile. The palette is enforced to at most 16 colors.</summary>
+/// <summary>An 8x8 SNES-style pixel tile.</summary>
 public sealed class PixelTile : IEquatable<PixelTile>
 {
     public const int Width = 8;
@@ -73,7 +68,6 @@ public sealed class PixelTile : IEquatable<PixelTile>
 
     public Color GetPixel(int x, int y) => pixels[y, x];
     public void SetPixel(int x, int y, Color color) => pixels[y, x] = SnesColor.ToRgb555(color);
-
     public int CountColors() => pixels.Cast<Color>().Distinct().Count();
 
     public bool Equals(PixelTile? other)
@@ -152,14 +146,7 @@ public sealed class Tilemap
     private readonly int[,] indices;
     public int Width { get; }
     public int Height { get; }
-
-    public Tilemap(int width, int height)
-    {
-        Width = width;
-        Height = height;
-        indices = new int[height, width];
-    }
-
+    public Tilemap(int width, int height) { Width = width; Height = height; indices = new int[height, width]; }
     public int this[int x, int y] { get => indices[y, x]; set => indices[y, x] = value; }
 }
 
@@ -171,8 +158,7 @@ public static class SnesDither
     public static Bitmap Dither(Bitmap source)
     {
         Bitmap result = new(source.Width, source.Height, PixelFormat.Format32bppArgb);
-        using Graphics g = Graphics.FromImage(result);
-        g.DrawImageUnscaled(source, 0, 0);
+        using (Graphics g = Graphics.FromImage(result)) g.DrawImageUnscaled(source, 0, 0);
         double[,,] work = new double[result.Height, result.Width, 3];
         for (int y = 0; y < result.Height; y++)
             for (int x = 0; x < result.Width; x++)
@@ -180,7 +166,6 @@ public static class SnesDither
                 Color c = result.GetPixel(x, y);
                 work[y, x, 0] = c.R; work[y, x, 1] = c.G; work[y, x, 2] = c.B;
             }
-
         for (int y = 0; y < result.Height; y++)
         for (int x = 0; x < result.Width; x++)
         {
@@ -195,13 +180,11 @@ public static class SnesDither
         }
         return result;
     }
-
     private static void Add(double[,,] work, int x, int y, double r, double g, double b, double weight)
     {
         if (y < 0 || y >= work.GetLength(0) || x < 0 || x >= work.GetLength(1)) return;
         work[y, x, 0] += r * weight; work[y, x, 1] += g * weight; work[y, x, 2] += b * weight;
     }
-
     private static int Clamp(double value) => Math.Clamp((int)Math.Round(value), 0, 255);
 }
 
@@ -263,11 +246,46 @@ public sealed class SpriteGenerator
     }
 
     public Bitmap GeneratePlayerSprite(bool alive) => GenerateSilhouette(16, 16, alive ? Color.FromArgb(168, 176, 184) : Color.FromArgb(80, 80, 84), Color.FromArgb(54, 58, 64), Color.FromArgb(216, 220, 204));
-
     public Bitmap GenerateMonsterSprite(int level)
     {
         Color body = level >= 5 ? Color.FromArgb(144, 48, 56) : Color.FromArgb(120, 76, 48);
         return GenerateSilhouette(16, 16, body, Color.FromArgb(52, 32, 28), Color.FromArgb(200, 132, 72));
+    }
+
+    public Bitmap GeneratePotionSprite()
+    {
+        Bitmap bitmap = new(8, 8, PixelFormat.Format32bppArgb);
+        Color liquid = Color.FromArgb(64, 144, 200), glass = Color.FromArgb(176, 208, 216), cork = Color.FromArgb(136, 96, 56);
+        for (int y = 2; y < 8; y++)
+            for (int x = 1; x < 7; x++)
+                if (x is > 1 and < 6 && y > 2) bitmap.SetPixel(x, y, liquid);
+        for (int x = 2; x < 6; x++) bitmap.SetPixel(x, 1, cork);
+        bitmap.SetPixel(1, 3, glass); bitmap.SetPixel(6, 3, glass);
+        return SnesDither.Dither(bitmap);
+    }
+
+    public Bitmap GenerateGearSprite(int rarity)
+    {
+        Bitmap bitmap = new(8, 8, PixelFormat.Format32bppArgb);
+        Color metal = rarity switch
+        {
+            1 => Color.FromArgb(152, 160, 168),
+            2 => Color.FromArgb(72, 128, 200),
+            3 => Color.FromArgb(168, 88, 208),
+            _ => Color.FromArgb(232, 160, 56)
+        };
+        Color dark = Color.FromArgb(Math.Max(0, metal.R - 48), Math.Max(0, metal.G - 48), Math.Max(0, metal.B - 48));
+        for (int y = 1; y < 7; y++)
+            for (int x = 1; x < 7; x++)
+            {
+                int distance = Math.Abs(x - 3) + Math.Abs(y - 3);
+                if (distance <= 3) bitmap.SetPixel(x, y, distance <= 1 ? metal : dark);
+            }
+        bitmap.SetPixel(3, 0, metal); bitmap.SetPixel(4, 0, metal);
+        bitmap.SetPixel(0, 3, metal); bitmap.SetPixel(0, 4, metal);
+        bitmap.SetPixel(7, 3, metal); bitmap.SetPixel(7, 4, metal);
+        bitmap.SetPixel(3, 7, metal); bitmap.SetPixel(4, 7, metal);
+        return SnesDither.Dither(bitmap);
     }
 }
 
@@ -318,10 +336,33 @@ public sealed class SnesArtGenerator
         return bitmap;
     }
 
+    public Bitmap GeneratePotionSprite()
+    {
+        if (!spriteCache.TryGetValue("potion", out Bitmap? bitmap))
+        {
+            bitmap = SpriteGenerator.GeneratePotionSprite();
+            spriteCache["potion"] = bitmap;
+        }
+        return bitmap;
+    }
+
+    public Bitmap GenerateGearSprite(int rarity)
+    {
+        string key = $"gear:{rarity}";
+        if (!spriteCache.TryGetValue(key, out Bitmap? bitmap))
+        {
+            bitmap = SpriteGenerator.GenerateGearSprite(rarity);
+            spriteCache[key] = bitmap;
+        }
+        return bitmap;
+    }
+
     public void GenerateAllAssets()
     {
         foreach (TerrainType type in Enum.GetValues<TerrainType>()) _ = GenerateTerrainTile(type);
         _ = GeneratePlayerSprite(true);
         _ = GenerateMonsterSprite(1);
+        _ = GeneratePotionSprite();
+        for (int rarity = 1; rarity <= 4; rarity++) _ = GenerateGearSprite(rarity);
     }
 }
