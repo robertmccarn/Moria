@@ -43,7 +43,14 @@ public sealed partial class Game
 
     private void DrawTile(Graphics g, TileType type, Rectangle rect)
     {
-        TerrainType terrain = type == TileType.Door ? TerrainType.Wood : TerrainType.Stone;
+        TerrainType terrain = type switch
+        {
+            TileType.Wall => TerrainType.Wall,
+            TileType.Door => TerrainType.Wood,
+            TileType.Floor or TileType.StairsUp or TileType.StairsDown or TileType.Trap => TerrainType.Floor,
+            _ => TerrainType.Stone
+        };
+
         Bitmap tile = art.GenerateTerrainTile(terrain);
         g.DrawImage(tile, rect);
 
@@ -51,20 +58,28 @@ public sealed partial class Game
         {
             using SolidBrush shadow = new(Color.FromArgb(105, 8, 8, 10));
             g.FillRectangle(shadow, rect);
-            using Pen detail = new(Color.FromArgb(184, 176, 144), 2f);
+            using Pen detail = new(Color.FromArgb(208, 204, 178), 2f);
             int cx = rect.X + rect.Width / 2;
             int cy = rect.Y + rect.Height / 2;
             switch (type)
             {
                 case TileType.StairsUp:
-                    for (int i = 0; i < 4; i++) g.DrawLine(detail, cx - 6 + i * 2, cy + 6 - i * 4, cx + 6, cy + 6 - i * 4);
+                    for (int i = 0; i < 4; i++)
+                    {
+                        int yy = cy + 7 - i * 4;
+                        g.DrawLine(detail, cx - 7 + i * 2, yy, cx + 7, yy);
+                    }
                     break;
                 case TileType.StairsDown:
-                    for (int i = 0; i < 4; i++) g.DrawLine(detail, cx - 6, cy - 6 + i * 4, cx + 6 - i * 2, cy - 6 + i * 4);
+                    for (int i = 0; i < 4; i++)
+                    {
+                        int yy = cy - 7 + i * 4;
+                        g.DrawLine(detail, cx - 7, yy, cx + 7 - i * 2, yy);
+                    }
                     break;
                 case TileType.Trap:
-                    g.DrawLine(detail, cx - 5, cy - 5, cx + 5, cy + 5);
-                    g.DrawLine(detail, cx + 5, cy - 5, cx - 5, cy + 5);
+                    g.DrawLine(detail, cx - 6, cy - 6, cx + 6, cy + 6);
+                    g.DrawLine(detail, cx + 6, cy - 6, cx - 6, cy + 6);
                     break;
             }
         }
