@@ -4,11 +4,9 @@ using System.Drawing.Imaging;
 
 namespace Moria.Art;
 
-/// <summary>Procedural SNES-inspired art pipeline: RGB555, 8x8 tiles, 16-color palettes, dithering and deduplication.</summary>
 public static class SnesColor
 {
     public static Color ToRgb555(Color c) => Color.FromArgb(c.A, (c.R >> 3) << 3, (c.G >> 3) << 3, (c.B >> 3) << 3);
-
     public static double Distance(Color a, Color b)
     {
         int r = a.R - b.R, g = a.G - b.G, blue = a.B - b.B;
@@ -20,9 +18,7 @@ public sealed class Palette
 {
     private readonly List<Color> colors = new();
     public IReadOnlyList<Color> Colors => colors;
-    public int Count => colors.Count;
-
-    public Palette(Color transparent) { colors.Add(SnesColor.ToRgb555(transparent)); }
+    public Palette(Color transparent) => colors.Add(SnesColor.ToRgb555(transparent));
     public int AddColor(Color color)
     {
         color = SnesColor.ToRgb555(color);
@@ -36,13 +32,21 @@ public sealed class Palette
     {
         if (colors.Count == 0) return Color.Black;
         Color best = colors[0]; double distance = double.MaxValue;
-        foreach (Color candidate in colors) { double d = SnesColor.Distance(color, candidate); if (d < distance) { distance = d; best = candidate; } }
+        foreach (Color candidate in colors)
+        {
+            double d = SnesColor.Distance(color, candidate);
+            if (d < distance) { distance = d; best = candidate; }
+        }
         return best;
     }
     public int GetIndex(Color color)
     {
         color = SnesColor.ToRgb555(color); int best = 0; double distance = double.MaxValue;
-        for (int i = 0; i < colors.Count; i++) { double d = SnesColor.Distance(color, colors[i]); if (d < distance) { distance = d; best = i; } }
+        for (int i = 0; i < colors.Count; i++)
+        {
+            double d = SnesColor.Distance(color, colors[i]);
+            if (d < distance) { distance = d; best = i; }
+        }
         return best;
     }
 }
@@ -95,7 +99,11 @@ public sealed class Sprite
         using Graphics g = Graphics.FromImage(bitmap);
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
-        for (int i = 0; i < Tiles.Count; i++) { using Bitmap tile = Tiles[i].ToBitmap(); g.DrawImage(tile, (i % WidthInTiles) * 8, (i / WidthInTiles) * 8, 8, 8); }
+        for (int i = 0; i < Tiles.Count; i++)
+        {
+            using Bitmap tile = Tiles[i].ToBitmap();
+            g.DrawImage(tile, (i % WidthInTiles) * 8, (i / WidthInTiles) * 8, 8, 8);
+        }
         return bitmap;
     }
 }
@@ -118,7 +126,8 @@ public static class SnesDither
         Bitmap result = new(source.Width, source.Height, PixelFormat.Format32bppArgb);
         using Graphics g = Graphics.FromImage(result); g.DrawImageUnscaled(source, 0, 0);
         double[,,] work = new double[result.Height, result.Width, 3];
-        for (int y = 0; y < result.Height; y++) for (int x = 0; x < result.Width; x++) { Color c = result.GetPixel(x, y); work[y, x, 0] = c.R; work[y, x, 1] = c.G; work[y, x, 2] = c.B; }
+        for (int y = 0; y < result.Height; y++) for (int x = 0; x < result.Width; x++)
+        { Color c = result.GetPixel(x, y); work[y, x, 0] = c.R; work[y, x, 1] = c.G; work[y, x, 2] = c.B; }
         for (int y = 0; y < result.Height; y++) for (int x = 0; x < result.Width; x++)
         {
             Color original = Color.FromArgb(Clamp(work[y, x, 0]), Clamp(work[y, x, 1]), Clamp(work[y, x, 2])); Color snapped = SnesColor.ToRgb555(original); result.SetPixel(x, y, snapped);
@@ -145,7 +154,8 @@ public sealed class TerrainGenerator
             _ => [Color.FromArgb(28, 28, 32), Color.FromArgb(48, 48, 52), Color.FromArgb(72, 72, 76), Color.FromArgb(104, 104, 104)]
         };
         PixelTile tile = new();
-        for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) { int index = Math.Clamp(random.Next(palette.Length) + (random.Next(100) < 55 ? 0 : -1), 0, palette.Length - 1); tile.SetPixel(x, y, palette[index]); }
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++)
+        { int index = Math.Clamp(random.Next(palette.Length) + (random.Next(100) < 55 ? 0 : -1), 0, palette.Length - 1); tile.SetPixel(x, y, palette[index]); }
         return QuantizeTileToPalette(tile, palette);
     }
     public static PixelTile QuantizeTileToPalette(PixelTile tile, IReadOnlyList<Color> palette)
@@ -173,6 +183,12 @@ public sealed class SpriteGenerator
     }
     public Bitmap GeneratePlayerSprite(bool alive) => GenerateSilhouette(16, 16, alive ? Color.FromArgb(168, 176, 184) : Color.FromArgb(80, 80, 84), Color.FromArgb(54, 58, 64), Color.FromArgb(216, 220, 204));
     public Bitmap GenerateMonsterSprite(int level) => GenerateSilhouette(16, 16, level >= 5 ? Color.FromArgb(144, 48, 56) : Color.FromArgb(120, 76, 48), Color.FromArgb(52, 32, 28), Color.FromArgb(200, 132, 72));
+    public Bitmap GeneratePotionSprite() => GenerateSilhouette(16, 16, Color.FromArgb(48, 112, 184), Color.FromArgb(24, 56, 96), Color.FromArgb(112, 184, 232));
+    public Bitmap GenerateGearSprite(int rarity)
+    {
+        Color body = rarity switch { 1 => Color.FromArgb(150, 156, 164), 2 => Color.FromArgb(64, 120, 200), 3 => Color.FromArgb(160, 80, 200), _ => Color.FromArgb(224, 156, 48) };
+        return GenerateSilhouette(16, 16, body, Color.FromArgb(40, 40, 48), Color.FromArgb(240, 240, 232));
+    }
 }
 
 public sealed class SnesArtGenerator
@@ -185,5 +201,7 @@ public sealed class SnesArtGenerator
     public Bitmap GenerateTerrainTile(TerrainType type) { if (!terrainCache.TryGetValue(type, out Bitmap? bitmap)) { using Bitmap source = TerrainGenerator.GenerateTerrainTile(type).ToBitmap(); bitmap = new Bitmap(source); terrainCache[type] = bitmap; } return bitmap; }
     public Bitmap GeneratePlayerSprite(bool alive) { string key = $"player:{alive}"; if (!spriteCache.TryGetValue(key, out Bitmap? bitmap)) { bitmap = SpriteGenerator.GeneratePlayerSprite(alive); spriteCache[key] = bitmap; } return bitmap; }
     public Bitmap GenerateMonsterSprite(int level) { string key = $"monster:{Math.Min(level, 5)}"; if (!spriteCache.TryGetValue(key, out Bitmap? bitmap)) { bitmap = SpriteGenerator.GenerateMonsterSprite(level); spriteCache[key] = bitmap; } return bitmap; }
-    public void GenerateAllAssets() { foreach (TerrainType type in Enum.GetValues<TerrainType>()) _ = GenerateTerrainTile(type); _ = GeneratePlayerSprite(true); _ = GenerateMonsterSprite(1); }
+    public Bitmap GeneratePotionSprite() { const string key = "potion"; if (!spriteCache.TryGetValue(key, out Bitmap? bitmap)) { bitmap = SpriteGenerator.GeneratePotionSprite(); spriteCache[key] = bitmap; } return bitmap; }
+    public Bitmap GenerateGearSprite(int rarity) { string key = $"gear:{Math.Clamp(rarity, 1, 4)}"; if (!spriteCache.TryGetValue(key, out Bitmap? bitmap)) { bitmap = SpriteGenerator.GenerateGearSprite(rarity); spriteCache[key] = bitmap; } return bitmap; }
+    public void GenerateAllAssets() { foreach (TerrainType type in Enum.GetValues<TerrainType>()) _ = GenerateTerrainTile(type); _ = GeneratePlayerSprite(true); _ = GenerateMonsterSprite(1); _ = GeneratePotionSprite(); _ = GenerateGearSprite(1); }
 }
