@@ -43,19 +43,13 @@ public sealed partial class Game
 
     private void DrawTile(Graphics g, TileType type, Rectangle rect)
     {
-        TerrainType terrain = type switch
-        {
-            TileType.Wall => TerrainType.Stone,
-            TileType.Door => TerrainType.Wood,
-            _ => TerrainType.Stone
-        };
-
-        using Bitmap tile = art.GenerateTerrainTile(terrain);
+        TerrainType terrain = type == TileType.Door ? TerrainType.Wood : TerrainType.Stone;
+        Bitmap tile = art.GenerateTerrainTile(terrain);
         g.DrawImage(tile, rect);
 
         if (type is TileType.StairsUp or TileType.StairsDown or TileType.Trap)
         {
-            using SolidBrush shadow = new(Color.FromArgb(110, 8, 8, 10));
+            using SolidBrush shadow = new(Color.FromArgb(105, 8, 8, 10));
             g.FillRectangle(shadow, rect);
             using Pen detail = new(Color.FromArgb(184, 176, 144), 2f);
             int cx = rect.X + rect.Width / 2;
@@ -78,25 +72,25 @@ public sealed partial class Game
 
     private void DrawPlayer(Graphics g, Rectangle rect, bool alive)
     {
-        using Bitmap sprite = art.GeneratePlayerSprite(alive);
+        Bitmap sprite = art.GeneratePlayerSprite(alive);
         g.DrawImage(sprite, rect);
     }
 
     private void DrawMonster(Graphics g, Rectangle rect, Monster monster)
     {
-        using Bitmap sprite = art.GenerateMonsterSprite(monster.Level);
+        Bitmap sprite = art.GenerateMonsterSprite(monster.Level);
         g.DrawImage(sprite, rect);
     }
 
     private void DrawPotion(Graphics g, Rectangle rect)
     {
-        using Bitmap sprite = art.GeneratePotionSprite();
+        Bitmap sprite = art.GeneratePotionSprite();
         g.DrawImage(sprite, rect);
     }
 
     private void DrawGear(Graphics g, Rectangle rect, Gear gear)
     {
-        using Bitmap sprite = art.GenerateGearSprite(gear.Rarity);
+        Bitmap sprite = art.GenerateGearSprite(gear.Rarity);
         g.DrawImage(sprite, rect);
     }
 
@@ -132,7 +126,7 @@ public sealed partial class Game
         g.DrawString($"Weapon: {player.Weapon?.Name ?? "None"}     Armor: {player.Armor?.Name ?? "None"}     Ring: {player.Ring?.Name ?? "None"}", normal, accent, 12, y + 55);
         g.DrawString(message, normal, text, 12, y + 79);
         g.DrawString("Arrows/HJKL move   G loot   I inventory   R equip best   E eat   Q potion   . descend   S save   X/Esc quit", small, muted, 12, y + 105);
-        g.DrawString("Procedural SNES art • 8x8 tiles • RGB555 • 16-color tile palettes • Floyd-Steinberg dithering", small, muted, 12, y + 124);
+        g.DrawString("Procedural SNES art • 8x8 tiles • RGB555 • 16-color palettes • Floyd-Steinberg dithering", small, muted, 12, y + 124);
     }
 
     protected override void OnPaint(PaintEventArgs e)
