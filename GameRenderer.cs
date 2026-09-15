@@ -1,5 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using Moria.Core;
+using Moria.Entities;
 using Moria.Items;
 using Moria.World;
 
@@ -15,24 +17,19 @@ public sealed partial class Game
             Position p = new(y, x);
             Tile tile = dungeon[p];
             Rectangle rect = new(x * TileSize, y * TileSize, TileSize, TileSize);
-
             if (!tile.Seen)
             {
                 using SolidBrush unseen = new(Color.FromArgb(7, 7, 10));
                 g.FillRectangle(unseen, rect);
                 continue;
             }
-
             DrawTile(g, tile.Type, rect);
             if (tile.Gear != null) DrawGear(g, rect, tile.Gear);
             else if (tile.HasItem) DrawPotion(g, rect);
-
             Monster? monster = dungeon.MonsterAt(p);
             if (monster != null) DrawMonster(g, rect, monster);
         }
-
         DrawPlayer(g, new Rectangle(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize), player.Alive);
-
         if (runOver) DrawDeathOverlay(g);
     }
 
@@ -47,16 +44,13 @@ public sealed partial class Game
             TileType.Trap => Color.FromArgb(62, 36, 45),
             _ => Color.FromArgb(10, 11, 15)
         };
-
         using SolidBrush brush = new(fill);
         g.FillRectangle(brush, rect);
         using Pen grid = new(Color.FromArgb(16, 17, 21));
         g.DrawRectangle(grid, rect);
-
         int cx = rect.X + rect.Width / 2;
         int cy = rect.Y + rect.Height / 2;
         using Pen detail = new(Color.FromArgb(135, 140, 150), 2f);
-
         switch (type)
         {
             case TileType.StairsUp:
@@ -84,7 +78,6 @@ public sealed partial class Game
         using SolidBrush shadow = new(Color.FromArgb(70, 72, 80));
         using Pen outline = new(alive ? Color.FromArgb(110, 205, 255) : Color.FromArgb(110, 110, 115), 1.5f);
         using Pen sword = new(Color.FromArgb(230, 230, 235), 2f);
-
         g.FillEllipse(shadow, rect.X + 5, rect.Y + 4, rect.Width - 10, rect.Height - 5);
         g.FillRectangle(steel, rect.X + 7, rect.Y + 10, rect.Width - 14, rect.Height - 7);
         g.FillEllipse(steel, rect.X + 6, rect.Y + 2, rect.Width - 12, 11);
@@ -99,12 +92,7 @@ public sealed partial class Game
     {
         Color bodyColor = monster.Level >= 5 ? Color.FromArgb(175, 70, 85) : Color.FromArgb(145, 100, 70);
         using SolidBrush body = new(bodyColor);
-        Point[] shape = [
-            new Point(rect.X + rect.Width / 2, rect.Y + 3),
-            new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2),
-            new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3),
-            new Point(rect.X + 4, rect.Y + rect.Height / 2)
-        ];
+        Point[] shape = [new Point(rect.X + rect.Width / 2, rect.Y + 3), new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2), new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3), new Point(rect.X + 4, rect.Y + rect.Height / 2)];
         g.FillPolygon(body, shape);
         using Pen outline = new(Color.FromArgb(235, 170, 110), 1.5f);
         g.DrawPolygon(outline, shape);
@@ -129,12 +117,7 @@ public sealed partial class Game
         };
         using SolidBrush brush = new(glow);
         using Pen outline = new(Color.FromArgb(245, 245, 245), 1f);
-        Point[] diamond = [
-            new Point(rect.X + rect.Width / 2, rect.Y + 3),
-            new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2),
-            new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3),
-            new Point(rect.X + 4, rect.Y + rect.Height / 2)
-        ];
+        Point[] diamond = [new Point(rect.X + rect.Width / 2, rect.Y + 3), new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2), new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3), new Point(rect.X + 4, rect.Y + rect.Height / 2)];
         g.FillPolygon(brush, diamond);
         g.DrawPolygon(outline, diamond);
     }
@@ -147,10 +130,9 @@ public sealed partial class Game
         using Font body = new("Segoe UI", 12);
         using SolidBrush text = new(Color.Gainsboro);
         using SolidBrush gold = new(Color.FromArgb(255, 215, 90));
-        int reward = LastRunReward;
         g.DrawString("YOU DIED", title, text, 290, 175);
         g.DrawString($"Dungeon level {player.DungeonLevel}    Run {player.RunsCompleted}", body, text, 300, 220);
-        g.DrawString($"+{reward} Legacy Gold", body, gold, 320, 245);
+        g.DrawString($"+{LastRunReward} Legacy Gold", body, gold, 320, 245);
         g.DrawString("ENTER / SPACE / N  New Run", body, text, 295, 285);
         g.DrawString("X / ESC  Quit", body, text, 350, 310);
     }
@@ -167,7 +149,6 @@ public sealed partial class Game
         using SolidBrush muted = new(Color.FromArgb(155, 160, 170));
         using SolidBrush accent = new(Color.FromArgb(100, 205, 255));
         using SolidBrush legendary = new(Color.FromArgb(245, 175, 65));
-
         g.DrawString($"{player.Name}   HP {Math.Max(0, player.Hp)}/{player.TotalMaxHp}   LV {player.Level}   XP {player.Experience}   ATK {player.TotalAttack}   ARM {player.TotalArmorClass}", title, text, 12, y + 8);
         g.DrawString($"Gold {player.Gold}   Legacy {player.PermanentGold}   Food {player.Food}   Dungeon {player.DungeonLevel}   Run {player.RunsCompleted + (runOver ? 0 : 1)}", normal, legendary, 12, y + 32);
         g.DrawString($"Weapon: {player.Weapon?.Name ?? "None"}     Armor: {player.Armor?.Name ?? "None"}     Ring: {player.Ring?.Name ?? "None"}", normal, accent, 12, y + 55);
