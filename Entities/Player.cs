@@ -30,6 +30,9 @@ public sealed class Player : Actor
     public Player(string name, Position position, int legacyGold = 0) : base(name, 'W', position, 24, 10, 4, 1)
     {
         PermanentGold = legacyGold;
+        Attack += legacyGold / 250;
+        MaxHp += (legacyGold / 500) * 2;
+        Hp = MaxHp;
         Inventory.Add(new Item("Rations", '%', 5, 0, 0, ItemKind.Food));
         Weapon = new Gear("Iron Longsword", '†', GearSlot.Weapon, 2, 0, 0, 35);
     }
