@@ -1,8 +1,4 @@
-﻿using Moria.World;
+using Moria;
 
-Dungeon dungeon = new();
-
-dungeon.GenerateCave();
-
-Console.Clear();
-dungeon.Draw();
+Game game = new();
+game.Run();
