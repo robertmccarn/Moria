@@ -18,6 +18,7 @@ public sealed class Player : Actor
     public int RunsCompleted { get; set; }
     public int PermanentGold { get; set; }
     public List<Item> Inventory { get; } = new();
+    public List<Gear> GearInventory { get; } = new();
     public Gear? Weapon { get; private set; }
     public Gear? Armor { get; private set; }
     public Gear? Ring { get; private set; }
@@ -26,8 +27,9 @@ public sealed class Player : Actor
     public int TotalArmorClass => ArmorClass + (Armor?.ArmorBonus ?? 0) + (Ring?.ArmorBonus ?? 0);
     public int TotalMaxHp => MaxHp + (Armor?.MaxHpBonus ?? 0) + (Ring?.MaxHpBonus ?? 0);
 
-    public Player(string name, Position position) : base(name, 'W', position, 24, 10, 4, 1)
+    public Player(string name, Position position, int legacyGold = 0) : base(name, 'W', position, 24, 10, 4, 1)
     {
+        PermanentGold = legacyGold;
         Inventory.Add(new Item("Rations", '%', 5, 0, 0, ItemKind.Food));
         Weapon = new Gear("Iron Longsword", '†', GearSlot.Weapon, 2, 0, 0, 35);
     }
@@ -43,11 +45,19 @@ public sealed class Player : Actor
         Hp = Math.Min(Hp, TotalMaxHp);
     }
 
+    public Gear? Equipped(GearSlot slot) => slot switch
+    {
+        GearSlot.Weapon => Weapon,
+        GearSlot.Armor => Armor,
+        GearSlot.Ring => Ring,
+        _ => null
+    };
+
     public void GainExperience(int amount)
     {
         Experience += amount;
         int needed = Level * 100;
-        if (Experience >= needed)
+        while (Experience >= needed)
         {
             Experience -= needed;
             Level++;
@@ -56,6 +66,7 @@ public sealed class Player : Actor
             MaxMana++;
             Mana = MaxMana;
             Attack++;
+            needed = Level * 100;
         }
     }
 }
