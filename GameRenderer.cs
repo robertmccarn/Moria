@@ -89,13 +89,8 @@ public sealed partial class Game
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
     {
-        int distance = Math.Abs(tile.X / TileSize - tile.X / TileSize);
-        _ = distance;
-
         using SolidBrush marker = new(Color.FromArgb(210, 180, 45, 45));
         g.FillEllipse(marker, tile.X + TileSize - 7, tile.Y + 2, 5, 5);
-
-        if (monster.Hp <= 0) return;
 
         using Font font = new("Segoe UI", 6.5f, FontStyle.Bold);
         using SolidBrush text = new(Color.FromArgb(235, 235, 235));
