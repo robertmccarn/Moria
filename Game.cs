@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using Moria.Core;
 using Moria.Entities;
@@ -9,12 +8,13 @@ using WinFormsTimer = System.Windows.Forms.Timer;
 
 namespace Moria;
 
-public sealed class Game : Form
+public sealed partial class Game : Form
 {
     private const int TileSize = 22;
     private const int MapWidth = Dungeon.Width * TileSize;
     private const int MapHeight = Dungeon.Height * TileSize;
-    private const int StatusHeight = 112;
+    private const int StatusHeight = 150;
+    private const string MetaFile = "moria.meta";
 
     private readonly Random random = new();
     private readonly WinFormsTimer redrawTimer;
@@ -23,12 +23,16 @@ public sealed class Game : Form
     private string message = "Welcome to Moria.";
     private bool running = true;
     private bool started;
+    private bool runOver;
+    private int lastRunReward;
+
+    public int LastRunReward => lastRunReward;
 
     public Game()
     {
-        Text = "Moria";
+        Text = "Moria — Roguelite";
         ClientSize = new Size(MapWidth, MapHeight + StatusHeight);
-        BackColor = Color.FromArgb(12, 12, 16);
+        BackColor = Color.FromArgb(9, 9, 12);
         ForeColor = Color.Gainsboro;
         DoubleBuffered = true;
         KeyPreview = true;
@@ -46,45 +50,67 @@ public sealed class Game : Form
 
     private void BeginGame()
     {
-        using Form dialog = new()
-        {
-            Text = "New Character",
-            ClientSize = new Size(360, 130),
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MinimizeBox = false,
-            MaximizeBox = false
-        };
-
-        Label label = new() { Text = "Character name:", Left = 18, Top = 18, AutoSize = true };
-        TextBox nameBox = new() { Left = 18, Top = 44, Width = 324 };
-        Button button = new() { Text = "Enter Moria", Left = 230, Top = 78, Width = 112, DialogResult = DialogResult.OK };
-        dialog.Controls.AddRange([label, nameBox, button]);
-        dialog.AcceptButton = button;
-
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        string name = AskForName();
+        if (name.Length == 0)
         {
             Close();
             return;
         }
 
-        string name = nameBox.Text.Trim();
-        if (name.Length == 0) name = "Adventurer";
-
-        dungeon = new Dungeon(random.Next());
-        player = new Player(name, new Position(1, 1));
-        dungeon.Generate(player.DungeonLevel);
-        player.Position = dungeon.UpStairs;
-        dungeon.RevealAround(player.Position, 8);
+        player = new Player(name, new Position(1, 1), (int)Math.Min(LoadLegacyGold(), int.MaxValue));
+        StartRun();
         started = true;
-        message = $"Welcome, {player.Name}. Explore the dungeon.";
         Focus();
         Invalidate();
     }
 
+    private string AskForName()
+    {
+        using Form dialog = new()
+        {
+            Text = "New Adventurer",
+            ClientSize = new Size(390, 150),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false
+        };
+        Label label = new() { Text = "Warrior name:", Left = 18, Top = 18, AutoSize = true };
+        TextBox nameBox = new() { Left = 18, Top = 44, Width = 350 };
+        Button button = new() { Text = "Enter Moria", Left = 252, Top = 88, Width = 116, DialogResult = DialogResult.OK };
+        dialog.Controls.AddRange([label, nameBox, button]);
+        dialog.AcceptButton = button;
+        return dialog.ShowDialog(this) == DialogResult.OK ? nameBox.Text.Trim() : string.Empty;
+    }
+
+    private void StartRun()
+    {
+        dungeon = new Dungeon(random.Next());
+        player.DungeonLevel = 1;
+        player.Hp = player.TotalMaxHp;
+        player.Mana = player.MaxMana;
+        player.Gold = 100;
+        player.Food = 10;
+        player.Experience = 0;
+        dungeon.Generate(player.DungeonLevel);
+        player.Position = dungeon.UpStairs;
+        dungeon.RevealAround(player.Position, 8);
+        runOver = false;
+        message = $"Run {player.RunsCompleted + 1}: descend, loot gear, and bring home Legacy Gold.";
+    }
+
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!started || !running || !player.Alive) return;
+        if (!started || !running) return;
+
+        if (runOver)
+        {
+            if (e.KeyCode is Keys.Enter or Keys.Space or Keys.N) StartFreshRun();
+            else if (e.KeyCode is Keys.X or Keys.Escape) { running = false; Close(); }
+            return;
+        }
+
+        if (!player.Alive) { EndRun(); return; }
 
         Direction direction = e.KeyCode switch
         {
@@ -112,14 +138,16 @@ public sealed class Game : Form
                 case Keys.G: Pickup(); break;
                 case Keys.E: Eat(); break;
                 case Keys.Q: Drink(); break;
+                case Keys.R: EquipBestGear(); break;
                 case Keys.S: Save(); break;
                 case Keys.X:
-                case Keys.Escape: running = false; Close(); break;
+                case Keys.Escape: running = false; Close(); return;
                 case Keys.OemPeriod: Descend(); break;
             }
         }
 
         if (running && player.Alive && e.KeyCode != Keys.I) MonstersAct();
+        if (!player.Alive) EndRun();
         Invalidate();
     }
 
@@ -127,36 +155,72 @@ public sealed class Game : Form
     {
         Position target = player.Position.Step(direction);
         if (!dungeon.IsWalkable(target)) { message = "You cannot move there."; return; }
+
         Monster? monster = dungeon.MonsterAt(target);
         if (monster != null) { Attack(monster); return; }
+
         player.Position = target;
         dungeon.RevealAround(target, 6);
-        if (dungeon[target].Type == TileType.Trap)
+        Tile tile = dungeon[target];
+        if (tile.Type == TileType.Trap)
         {
             int damage = random.Next(1, 5);
             player.Hp -= damage;
             message = $"A trap wounds you for {damage}!";
         }
-        else if (target == dungeon.DownStairs)
-            message = "You stand on the stairs leading deeper into Moria.";
+        else if (tile.Gear != null) message = $"You see {tile.Gear.Name}. Press G to loot it.";
+        else if (tile.HasItem) message = "You see a Potion of Healing. Press G to loot it.";
+        else if (target == dungeon.DownStairs) message = "Press . to descend deeper into Moria.";
     }
 
     private void Attack(Monster monster)
     {
-        int roll = random.Next(1, 21) + player.Attack;
-        if (roll >= monster.ArmorClass)
+        if (random.Next(1, 21) + player.TotalAttack >= monster.ArmorClass)
         {
-            int damage = random.Next(1, 7) + player.Attack / 2;
+            bool critical = random.Next(100) < 8 + player.Dexterity / 5;
+            int damage = random.Next(1, 7) + Math.Max(1, player.TotalAttack / 2);
+            if (critical) damage *= 2;
             monster.Hp -= damage;
-            message = $"You hit the {monster.Name} for {damage}.";
+            message = critical ? $"CRITICAL! You cleave the {monster.Name} for {damage}." : $"You hit the {monster.Name} for {damage}.";
             if (!monster.Alive)
             {
-                player.GainExperience(monster.ExperienceValue);
-                message += $" The {monster.Name} dies. +{monster.ExperienceValue} XP.";
+                int xp = monster.ExperienceValue;
+                int gold = random.Next(4, 13) + player.DungeonLevel * 2;
+                player.Gold += gold;
+                player.GainExperience(xp);
+                message += $" +{xp} XP, +{gold} gold.";
+                DropLoot(monster.Position, player.DungeonLevel);
             }
         }
         else message = $"You miss the {monster.Name}.";
     }
+
+    private void DropLoot(Position position, int level)
+    {
+        Tile tile = dungeon[position];
+        if (tile.Gear != null || tile.HasItem) return;
+        int roll = random.Next(100);
+        if (roll < 45) tile.Gear = CreateLoot(level);
+        else if (roll < 70) tile.HasItem = true;
+    }
+
+    private Gear CreateLoot(int level)
+    {
+        int rarityRoll = random.Next(100);
+        int rarity = rarityRoll < 60 ? 1 : rarityRoll < 88 ? 2 : rarityRoll < 98 ? 3 : 4;
+        int power = Math.Max(1, level + rarity - 1);
+        GearSlot slot = (GearSlot)random.Next(3);
+        string adjective = rarity switch { 1 => "Worn", 2 => "Fine", 3 => "Runed", _ => "Mythic" };
+
+        if (slot == GearSlot.Weapon)
+            return new Gear($"{adjective} {WeaponName()}", '†', slot, 2 + power + rarity, 0, 0, 25 * power * rarity, rarity);
+        if (slot == GearSlot.Armor)
+            return new Gear($"{adjective} {ArmorName()}", '[', slot, 0, 1 + power / 2 + rarity, rarity >= 2 ? power * rarity : 0, 30 * power * rarity, rarity);
+        return new Gear($"{adjective} Ring of the Depths", 'o', slot, rarity >= 3 ? rarity : random.Next(0, 2), random.Next(0, 2) + (rarity >= 2 ? 1 : 0), power * rarity, 40 * power * rarity, rarity);
+    }
+
+    private string WeaponName() => new[] { "War Axe", "Steel Falchion", "Goblin Cleaver", "Deepfang", "Starblade" }[random.Next(5)];
+    private string ArmorName() => new[] { "Chain Hauberk", "Iron Cuirass", "Runed Mail", "Deepguard Plate", "Wyrmhide Armor" }[random.Next(5)];
 
     private void MonstersAct()
     {
@@ -165,15 +229,13 @@ public sealed class Game : Form
             int dy = player.Position.Y - monster.Position.Y;
             int dx = player.Position.X - monster.Position.X;
             if (Math.Abs(dy) + Math.Abs(dx) > 10) continue;
-
             Position target = monster.Position;
             if (Math.Abs(dy) >= Math.Abs(dx)) target = new Position(target.Y + Math.Sign(dy), target.X);
             else target = new Position(target.Y, target.X + Math.Sign(dx));
 
             if (target == player.Position)
             {
-                int roll = random.Next(1, 21) + monster.Attack;
-                if (roll >= player.ArmorClass)
+                if (random.Next(1, 21) + monster.Attack >= player.TotalArmorClass)
                 {
                     int damage = random.Next(1, 5) + monster.Level / 2;
                     player.Hp -= damage;
@@ -181,8 +243,8 @@ public sealed class Game : Form
                 }
                 else message = $"The {monster.Name} misses you.";
             }
-            else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null)
-                monster.Position = target;
+            else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null) monster.Position = target;
+            if (!player.Alive) return;
         }
     }
 
@@ -190,26 +252,66 @@ public sealed class Game : Form
     {
         if (player.Position != dungeon.DownStairs) { message = "There are no stairs here."; return; }
         player.DungeonLevel++;
+        player.Gold += 15 + player.DungeonLevel * 3;
         dungeon.Generate(player.DungeonLevel);
         player.Position = dungeon.UpStairs;
         dungeon.RevealAround(player.Position, 8);
-        message = $"You descend to dungeon level {player.DungeonLevel}.";
+        message = $"You descend to level {player.DungeonLevel}. Enemy power rises with depth.";
     }
 
     private void Pickup()
     {
-        if (!dungeon[player.Position].HasItem) { message = "There is nothing here."; return; }
-        dungeon[player.Position].HasItem = false;
-        player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
-        message = "You pick up a Potion of Healing.";
+        Tile tile = dungeon[player.Position];
+        if (tile.Gear != null)
+        {
+            Gear gear = tile.Gear;
+            tile.Gear = null;
+            player.GearInventory.Add(gear);
+            if (ShouldEquip(gear)) { player.Equip(gear); message = $"Looted and equipped {gear.Name}: {GearSummary(gear)}"; }
+            else message = $"Looted {gear.Name}. Press R to equip the strongest gear.";
+            return;
+        }
+        if (tile.HasItem)
+        {
+            tile.HasItem = false;
+            player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
+            message = "Looted a Potion of Healing. Press Q to drink it.";
+            return;
+        }
+        message = "There is nothing here.";
+    }
+
+    private bool ShouldEquip(Gear gear)
+    {
+        Gear? current = player.Equipped(gear.Slot);
+        return current == null || GearScore(gear) > GearScore(current);
+    }
+
+    private void EquipBestGear()
+    {
+        Gear? best = player.GearInventory.OrderByDescending(GearScore).FirstOrDefault(ShouldEquip);
+        if (best == null) { message = "Nothing in your pack would improve your equipment."; return; }
+        player.Equip(best);
+        message = $"Equipped {best.Name}: {GearSummary(best)}";
+    }
+
+    private static int GearScore(Gear gear) => gear.AttackBonus * 5 + gear.ArmorBonus * 5 + gear.MaxHpBonus + gear.Rarity * 2;
+
+    private static string GearSummary(Gear gear)
+    {
+        List<string> parts = new();
+        if (gear.AttackBonus > 0) parts.Add($"+{gear.AttackBonus} ATK");
+        if (gear.ArmorBonus > 0) parts.Add($"+{gear.ArmorBonus} ARM");
+        if (gear.MaxHpBonus > 0) parts.Add($"+{gear.MaxHpBonus} HP");
+        return string.Join(", ", parts);
     }
 
     private void Eat()
     {
         if (player.Food <= 0) { message = "You have no food."; return; }
         player.Food--;
-        player.Hp = Math.Min(player.MaxHp, player.Hp + 3);
-        message = "You eat some food.";
+        player.Hp = Math.Min(player.TotalMaxHp, player.Hp + 3);
+        message = "You eat some food and recover 3 HP.";
     }
 
     private void Drink()
@@ -217,150 +319,60 @@ public sealed class Game : Form
         Item? potion = player.Inventory.FirstOrDefault(i => i.Kind == ItemKind.Potion);
         if (potion == null) { message = "You have no potions."; return; }
         player.Inventory.Remove(potion);
-        player.Hp = player.MaxHp;
-        message = "You drink a Potion of Healing.";
+        int healed = player.TotalMaxHp - player.Hp;
+        player.Hp = player.TotalMaxHp;
+        message = $"Potion used: +{healed} HP.";
     }
 
     private void ShowInventory()
     {
-        string inventory = player.Inventory.Count == 0
-            ? "Your pack is empty."
-            : string.Join(Environment.NewLine, player.Inventory.Select(i => $"{i.Name}    {i.Value} gp"));
-        MessageBox.Show(this, inventory, "Inventory", MessageBoxButtons.OK, MessageBoxIcon.None);
+        string gear = player.GearInventory.Count == 0 ? "No spare gear." : string.Join(Environment.NewLine, player.GearInventory.Select(g => $"{RarityName(g.Rarity)} {g.Name} [{g.Slot}] {GearSummary(g)}"));
+        string items = player.Inventory.Count == 0 ? "No consumables." : string.Join(Environment.NewLine, player.Inventory.Select(i => $"{i.Name}    {i.Value} gp"));
+        string equipped = $"WEAPON: {player.Weapon?.Name ?? "None"}\nARMOR:  {player.Armor?.Name ?? "None"}\nRING:   {player.Ring?.Name ?? "None"}";
+        MessageBox.Show(this, $"EQUIPPED\n{equipped}\n\nLOOT\n{gear}\n\nCONSUMABLES\n{items}", "Inventory & Gear", MessageBoxButtons.OK, MessageBoxIcon.None);
         Focus();
     }
 
+    private static string RarityName(int rarity) => rarity switch { 1 => "Common", 2 => "Rare", 3 => "Epic", _ => "Legendary" };
+
+    private void EndRun()
+    {
+        if (runOver) return;
+        runOver = true;
+        player.RunsCompleted++;
+        lastRunReward = Math.Max(10, player.Gold / 3 + player.DungeonLevel * 10);
+        player.PermanentGold += lastRunReward;
+        SaveLegacyGold();
+        message = $"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.";
+    }
+
+    private void StartFreshRun()
+    {
+        int legacy = player.PermanentGold;
+        player = new Player(player.Name, new Position(1, 1), legacy);
+        StartRun();
+        message = $"New run begins. Legacy Gold: {legacy}.";
+        Focus();
+        Invalidate();
+    }
+
+    private long LoadLegacyGold()
+    {
+        try
+        {
+            if (!File.Exists(MetaFile)) return 0;
+            string value = File.ReadAllText(MetaFile).Split('|')[0];
+            return long.TryParse(value, out long gold) ? Math.Max(0, gold) : 0;
+        }
+        catch { return 0; }
+    }
+
+    private void SaveLegacyGold() => File.WriteAllText(MetaFile, $"{player.PermanentGold}|{player.RunsCompleted}");
+
     private void Save()
     {
-        string data = string.Join('|', player.Name, player.Level, player.Experience, player.Hp, player.MaxHp, player.Gold, player.DungeonLevel);
-        File.WriteAllText("moria.sav", data);
-        message = "Game saved to moria.sav.";
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        if (!started) return;
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        DrawMap(e.Graphics);
-        DrawStatus(e.Graphics);
-    }
-
-    private void DrawMap(Graphics g)
-    {
-        for (int y = 0; y < Dungeon.Height; y++)
-        for (int x = 0; x < Dungeon.Width; x++)
-        {
-            Position p = new(y, x);
-            Tile tile = dungeon[p];
-            Rectangle rect = new(x * TileSize, y * TileSize, TileSize, TileSize);
-
-            if (!tile.Seen)
-            {
-                using SolidBrush unseen = new(Color.FromArgb(8, 8, 11));
-                g.FillRectangle(unseen, rect);
-                continue;
-            }
-
-            DrawTile(g, tile.Type, rect);
-            if (tile.HasItem) DrawItem(g, rect);
-            Monster? monster = dungeon.MonsterAt(p);
-            if (monster != null) DrawMonster(g, rect, monster);
-        }
-
-        DrawPlayer(g, new Rectangle(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize));
-    }
-
-    private static void DrawTile(Graphics g, TileType type, Rectangle rect)
-    {
-        Color fill = type switch
-        {
-            TileType.Floor => Color.FromArgb(45, 45, 50),
-            TileType.Wall => Color.FromArgb(27, 28, 34),
-            TileType.Door => Color.FromArgb(82, 64, 44),
-            TileType.StairsUp or TileType.StairsDown => Color.FromArgb(48, 55, 65),
-            TileType.Trap => Color.FromArgb(57, 38, 44),
-            _ => Color.FromArgb(12, 13, 17)
-        };
-
-        using SolidBrush brush = new(fill);
-        g.FillRectangle(brush, rect);
-        using Pen grid = new(Color.FromArgb(18, 19, 23));
-        g.DrawRectangle(grid, rect);
-
-        int cx = rect.X + rect.Width / 2;
-        int cy = rect.Y + rect.Height / 2;
-        using Pen detail = new(Color.FromArgb(125, 130, 140), 2f);
-
-        switch (type)
-        {
-            case TileType.StairsUp:
-                g.DrawLine(detail, cx - 6, cy + 5, cx, cy - 5);
-                g.DrawLine(detail, cx, cy - 5, cx + 6, cy + 5);
-                break;
-            case TileType.StairsDown:
-                g.DrawLine(detail, cx - 6, cy - 5, cx, cy + 5);
-                g.DrawLine(detail, cx, cy + 5, cx + 6, cy - 5);
-                break;
-            case TileType.Door:
-                g.DrawRectangle(detail, rect.X + 6, rect.Y + 4, rect.Width - 12, rect.Height - 8);
-                break;
-            case TileType.Trap:
-                g.DrawPolygon(detail, [new Point(cx, cy - 6), new Point(cx - 6, cy + 5), new Point(cx + 6, cy + 5)]);
-                break;
-        }
-    }
-
-    private static void DrawPlayer(Graphics g, Rectangle rect)
-    {
-        using SolidBrush body = new(Color.FromArgb(225, 225, 230));
-        g.FillEllipse(body, rect.X + 4, rect.Y + 3, rect.Width - 8, rect.Height - 6);
-        using Pen outline = new(Color.FromArgb(100, 205, 255), 2f);
-        g.DrawEllipse(outline, rect.X + 4, rect.Y + 3, rect.Width - 8, rect.Height - 6);
-        using Pen weapon = new(Color.FromArgb(220, 220, 220), 2f);
-        g.DrawLine(weapon, rect.X + 14, rect.Y + 7, rect.X + 19, rect.Y + 2);
-    }
-
-    private static void DrawMonster(Graphics g, Rectangle rect, Monster monster)
-    {
-        Color bodyColor = monster.Level >= 5 ? Color.FromArgb(175, 75, 85) : Color.FromArgb(150, 105, 75);
-        using SolidBrush body = new(bodyColor);
-        Point[] shape = [
-            new Point(rect.X + rect.Width / 2, rect.Y + 3),
-            new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2),
-            new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3),
-            new Point(rect.X + 4, rect.Y + rect.Height / 2)
-        ];
-        g.FillPolygon(body, shape);
-        using Pen outline = new(Color.FromArgb(235, 170, 110), 1.5f);
-        g.DrawPolygon(outline, shape);
-    }
-
-    private static void DrawItem(Graphics g, Rectangle rect)
-    {
-        using SolidBrush brush = new(Color.FromArgb(90, 170, 225));
-        Point[] diamond = [
-            new Point(rect.X + rect.Width / 2, rect.Y + 4),
-            new Point(rect.X + rect.Width - 5, rect.Y + rect.Height / 2),
-            new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 4),
-            new Point(rect.X + 5, rect.Y + rect.Height / 2)
-        ];
-        g.FillPolygon(brush, diamond);
-    }
-
-    private void DrawStatus(Graphics g)
-    {
-        int y = MapHeight;
-        using SolidBrush background = new(Color.FromArgb(18, 19, 24));
-        g.FillRectangle(background, 0, y, ClientSize.Width, StatusHeight);
-        using Font title = new("Segoe UI", 12, FontStyle.Bold);
-        using Font normal = new("Segoe UI", 9);
-        using Font controls = new("Segoe UI", 8.5f);
-        using SolidBrush text = new(Color.Gainsboro);
-        using SolidBrush muted = new(Color.FromArgb(155, 160, 170));
-
-        g.DrawString($"{player.Name}   HP {player.Hp}/{player.MaxHp}   LV {player.Level}   XP {player.Experience}   Gold {player.Gold}   Food {player.Food}   Dungeon {player.DungeonLevel}", title, text, 12, y + 10);
-        g.DrawString(message, normal, text, 12, y + 38);
-        g.DrawString("Arrow keys / HJKL move    G get    I inventory    E eat    Q drink    . descend    S save    X / Esc quit", controls, muted, 12, y + 66);
+        File.WriteAllText("moria.sav", string.Join('|', player.Name, player.Level, player.Experience, player.Hp, player.TotalMaxHp, player.Gold, player.DungeonLevel, player.PermanentGold));
+        SaveLegacyGold();
+        message = "Run saved. Legacy Gold persisted.";
     }
 }
