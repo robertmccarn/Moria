@@ -6,7 +6,7 @@ namespace Moria.Art;
 /// <summary>Procedural SNES-inspired art pipeline: RGB555, 8x8 tiles, 16-color palettes, dithering and deduplication.</summary>
 public static class SnesColor
 {
-    public static Color ToRgb555(Color c) => Color.FromArgb((c.R >> 3) << 3, (c.G >> 3) << 3, (c.B >> 3) << 3);
+    public static Color ToRgb555(Color c) => Color.FromArgb(c.A, (c.R >> 3) << 3, (c.G >> 3) << 3, (c.B >> 3) << 3);
 
     public static double Distance(Color a, Color b)
     {
@@ -164,12 +164,15 @@ public static class SnesDither
             for (int x = 0; x < result.Width; x++)
             {
                 Color c = result.GetPixel(x, y);
+                if (c.A == 0) continue;
                 work[y, x, 0] = c.R; work[y, x, 1] = c.G; work[y, x, 2] = c.B;
             }
         for (int y = 0; y < result.Height; y++)
         for (int x = 0; x < result.Width; x++)
         {
-            Color original = Color.FromArgb(Clamp(work[y, x, 0]), Clamp(work[y, x, 1]), Clamp(work[y, x, 2]));
+            Color current = result.GetPixel(x, y);
+            if (current.A == 0) continue;
+            Color original = Color.FromArgb(current.A, Clamp(work[y, x, 0]), Clamp(work[y, x, 1]), Clamp(work[y, x, 2]));
             Color snapped = SnesColor.ToRgb555(original);
             result.SetPixel(x, y, snapped);
             double er = original.R - snapped.R, eg = original.G - snapped.G, eb = original.B - snapped.B;
