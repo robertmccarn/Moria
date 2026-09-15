@@ -24,7 +24,7 @@ public sealed partial class Game
                 continue;
             }
             DrawTile(g, tile.Type, rect);
-            if (tile.Gear != null) DrawGear(g, rect, tile.Gear);
+            if (tile.GearLoot.Count > 0) DrawGear(g, rect, tile.GearLoot[^1]);
             else if (tile.HasItem) DrawPotion(g, rect);
             Monster? monster = dungeon.MonsterAt(p);
             if (monster != null) DrawMonster(g, rect, monster);
@@ -120,7 +120,10 @@ public sealed partial class Game
         Point[] diamond = [new Point(rect.X + rect.Width / 2, rect.Y + 3), new Point(rect.X + rect.Width - 4, rect.Y + rect.Height / 2), new Point(rect.X + rect.Width / 2, rect.Y + rect.Height - 3), new Point(rect.X + 4, rect.Y + rect.Height / 2)];
         g.FillPolygon(brush, diamond);
         g.DrawPolygon(outline, diamond);
+        if (tileHasMultipleLoot) { }
     }
+
+    private bool tileHasMultipleLoot => false;
 
     private void DrawDeathOverlay(Graphics g)
     {
