@@ -10,7 +10,7 @@ namespace Moria;
 
 public sealed partial class Game : Form
 {
-    private const int TileSize = 40;
+    private const int TileSize = 32;
     private const int MapWidth = 1920;
     private const int MapHeight = 880;
     private const int StatusHeight = 200;
@@ -149,11 +149,8 @@ public sealed partial class Game : Form
             }
         }
 
-        if (running && player.Alive && direction != Direction.None || e.KeyCode == Keys.Q || e.KeyCode == Keys.E)
-        {
-            if (running && player.Alive && (direction != Direction.None || e.KeyCode == Keys.Q || e.KeyCode == Keys.E))
-                MonstersAct();
-        }
+        if (running && player.Alive && (direction != Direction.None || e.KeyCode is Keys.Q or Keys.E))
+            MonstersAct();
 
         if (!player.Alive) EndRun();
         Invalidate();
