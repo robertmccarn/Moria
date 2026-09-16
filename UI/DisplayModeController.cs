@@ -5,7 +5,7 @@ namespace Moria;
 
 public sealed partial class Game
 {
-    private readonly DisplayModeController displayModeController = new();
+    private readonly DisplayModeController displayModeController = new(this);
 
     private sealed class DisplayModeController
     {
@@ -18,21 +18,12 @@ public sealed partial class Game
 
         private readonly Game form;
         private readonly Rectangle windowedBounds;
-        private readonly FormWindowState windowedState;
         private DisplayMode mode;
-
-        public DisplayModeController()
-        {
-            form = null!;
-            windowedBounds = Rectangle.Empty;
-            windowedState = FormWindowState.Normal;
-        }
 
         public DisplayModeController(Game owner)
         {
             form = owner;
             windowedBounds = owner.Bounds;
-            windowedState = owner.WindowState;
             mode = DisplayMode.Windowed;
             owner.KeyDown += OnKeyDown;
         }
