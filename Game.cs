@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows.Forms;
+using Moria.Combat;
 using Moria.Core;
 using Moria.Entities;
 using Moria.Input;
@@ -21,6 +22,7 @@ public sealed partial class Game : Form
     private readonly WinFormsTimer redrawTimer;
     private readonly List<string> chatLog = new();
     private readonly FieldOfView fieldOfView = new();
+    private readonly CombatSystem combat = new();
     private Dungeon dungeon = null!;
     private Player player = null!;
     private VisibilityMap visibility = null!;
@@ -113,10 +115,7 @@ public sealed partial class Game : Form
         SetMessage($"Run {player.RunsCompleted + 1} begins. Descend into Moria and survive.");
     }
 
-    private void RecalculateVisibility(int radius)
-    {
-        fieldOfView.Recalculate(dungeon, player.Position, radius, visibility);
-    }
+    private void RecalculateVisibility(int radius) => fieldOfView.Recalculate(dungeon, player.Position, radius, visibility);
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
@@ -135,27 +134,18 @@ public sealed partial class Game : Form
         bool consumesTurn = false;
         switch (action)
         {
-            case GameAction.MoveUp:
-                MovePlayer(Direction.Up); consumesTurn = true; break;
-            case GameAction.MoveDown:
-                MovePlayer(Direction.Down); consumesTurn = true; break;
-            case GameAction.MoveLeft:
-                MovePlayer(Direction.Left); consumesTurn = true; break;
-            case GameAction.MoveRight:
-                MovePlayer(Direction.Right); consumesTurn = true; break;
-            case GameAction.DrinkPotion:
-                Drink(); consumesTurn = true; break;
-            case GameAction.Interact:
-                consumesTurn = Interact(); break;
-            case GameAction.ChatLog:
-                ShowChatLog(); break;
-            case GameAction.Quit:
-                running = false; Close(); return;
+            case GameAction.MoveUp: MovePlayer(Direction.Up); consumesTurn = true; break;
+            case GameAction.MoveDown: MovePlayer(Direction.Down); consumesTurn = true; break;
+            case GameAction.MoveLeft: MovePlayer(Direction.Left); consumesTurn = true; break;
+            case GameAction.MoveRight: MovePlayer(Direction.Right); consumesTurn = true; break;
+            case GameAction.DrinkPotion: Drink(); consumesTurn = true; break;
+            case GameAction.Interact: consumesTurn = Interact(); break;
+            case GameAction.ChatLog: ShowChatLog(); break;
+            case GameAction.Quit: running = false; Close(); return;
         }
 
         if (running && player.Alive && consumesTurn && !victory)
             MonstersAct();
-
         if (!player.Alive) EndRun();
         Invalidate();
     }
@@ -178,7 +168,6 @@ public sealed partial class Game : Form
 
         player.Position = target;
         RecalculateVisibility(7);
-
         Tile tile = dungeon[target];
         if (tile.Type == TileType.Trap)
         {
@@ -187,40 +176,32 @@ public sealed partial class Game : Form
             SetMessage($"A trap wounds you for {damage}!");
         }
         else if (target == dungeon.DownStairs)
-        {
             SetMessage("You found the stairs down. Press E to descend.");
-        }
-
         AutoLoot();
     }
 
     private void Attack(Monster monster)
     {
-        if (random.Next(1, 21) + player.TotalAttack >= monster.ArmorClass)
+        CombatResult result = combat.PlayerAttack(player, monster, random);
+        if (!result.Hit)
         {
-            bool critical = random.Next(100) < 8 + player.Dexterity / 5;
-            int damage = random.Next(1, 7) + Math.Max(1, player.TotalAttack / 2);
-            if (critical) damage *= 2;
-            monster.Hp -= damage;
-            SetMessage(critical ? $"CRITICAL! You cleave the {monster.Name} for {damage}." : $"You hit the {monster.Name} for {damage}.");
-            if (!monster.Alive)
-            {
-                int xp = monster.ExperienceValue;
-                int gold = random.Next(4, 13) + player.DungeonLevel * 2;
-                player.Gold += gold;
-                int oldLevel = player.Level;
-                player.GainExperience(xp);
-                SetMessage($"The {monster.Name} dies. +{xp} XP, +{gold} gold.");
-                if (player.Level > oldLevel)
-                    SetMessage($"LEVEL UP! You are now level {player.Level}.");
-                DropLoot(monster.Position, player.DungeonLevel);
-                AutoLoot();
-
-                if (player.DungeonLevel == Dungeon.MaximumDepth && monster.IsBoss)
-                    WinRun();
-            }
+            SetMessage($"You miss the {monster.Name}.");
+            return;
         }
-        else SetMessage($"You miss the {monster.Name}.");
+
+        SetMessage(result.Critical ? $"CRITICAL! You cleave the {monster.Name} for {result.Damage}." : $"You hit the {monster.Name} for {result.Damage}.");
+        if (!result.Defeated) return;
+
+        int xp = monster.ExperienceValue;
+        int gold = random.Next(4, 13) + player.DungeonLevel * 2;
+        player.Gold += gold;
+        int oldLevel = player.Level;
+        player.GainExperience(xp);
+        SetMessage($"The {monster.Name} dies. +{xp} XP, +{gold} gold.");
+        if (player.Level > oldLevel) SetMessage($"LEVEL UP! You are now level {player.Level}.");
+        DropLoot(monster.Position, player.DungeonLevel);
+        AutoLoot();
+        if (player.DungeonLevel == Dungeon.MaximumDepth && monster.IsBoss) WinRun();
     }
 
     private void DropLoot(Position position, int level)
@@ -247,7 +228,6 @@ public sealed partial class Game : Form
         int power = Math.Max(1, level + rarity - 1);
         GearSlot slot = (GearSlot)random.Next(3);
         string adjective = rarity switch { 1 => "Worn", 2 => "Fine", 3 => "Runed", _ => "Mythic" };
-
         if (slot == GearSlot.Weapon)
             return new Gear($"{adjective} {WeaponName()}", '†', slot, 2 + power + rarity, 0, 0, 25 * power * rarity, rarity);
         if (slot == GearSlot.Armor)
@@ -272,15 +252,11 @@ public sealed partial class Game : Form
 
             if (target == player.Position)
             {
-                if (random.Next(1, 21) + monster.Attack >= player.TotalArmorClass)
-                {
-                    int damage = random.Next(1, 5) + monster.Level / 2;
-                    player.Hp -= damage;
-                    SetMessage($"The {monster.Name} hits you for {damage}!");
-                }
-                else SetMessage($"The {monster.Name} misses you.");
+                CombatResult result = combat.MonsterAttack(player, monster, random);
+                SetMessage(result.Hit ? $"The {monster.Name} hits you for {result.Damage}!" : $"The {monster.Name} misses you.");
             }
-            else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null) monster.Position = target;
+            else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null)
+                monster.Position = target;
             if (!player.Alive) return;
         }
     }
@@ -297,7 +273,6 @@ public sealed partial class Game : Form
             Descend();
             return true;
         }
-
         ShowInventory();
         return false;
     }
@@ -320,7 +295,6 @@ public sealed partial class Game : Form
         int gearCount = tile.GearLoot.Count;
         int potionCount = tile.PotionCount;
         if (gearCount == 0 && potionCount == 0) return;
-
         foreach (Gear gear in tile.GearLoot)
         {
             player.GearInventory.Add(gear);
@@ -331,18 +305,12 @@ public sealed partial class Game : Form
             }
         }
         tile.GearLoot.Clear();
-        for (int i = 0; i < potionCount; i++)
-            player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
+        for (int i = 0; i < potionCount; i++) player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
         tile.PotionCount = 0;
         SetMessage($"Auto-looted {gearCount + potionCount} item{(gearCount + potionCount == 1 ? "" : "s")}.");
     }
 
-    private bool ShouldEquip(Gear gear)
-    {
-        Gear? current = player.Equipped(gear.Slot);
-        return current == null || GearScore(gear) > GearScore(current);
-    }
-
+    private bool ShouldEquip(Gear gear) => player.Equipped(gear.Slot) is not Gear current || GearScore(gear) > GearScore(current);
     private static int GearScore(Gear gear) => gear.AttackBonus * 5 + gear.ArmorBonus * 5 + gear.MaxHpBonus + gear.Rarity * 2;
 
     private static string GearSummary(Gear gear)
@@ -357,11 +325,7 @@ public sealed partial class Game : Form
     private void Drink()
     {
         Item? potion = player.Inventory.FirstOrDefault(i => i.Kind == ItemKind.Potion);
-        if (potion == null)
-        {
-            SetMessage("You have no potions.");
-            return;
-        }
+        if (potion == null) { SetMessage("You have no potions."); return; }
         player.Inventory.Remove(potion);
         int healed = player.TotalMaxHp - player.Hp;
         player.Hp = player.TotalMaxHp;
