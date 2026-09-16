@@ -1,5 +1,6 @@
 using System.Drawing;
 using Moria.Entities;
+using Moria.Items;
 
 namespace Moria.UI;
 
@@ -7,7 +8,7 @@ public sealed class UiRenderer
 {
     public const int Height = 104;
 
-    public void Draw(Graphics g, Player player, string message, bool runOver, int lastRunReward)
+    public void Draw(Graphics g, Player player, string message, bool runOver, bool victory, int lastRunReward)
     {
         int y = 256;
         using SolidBrush background = new(UiTheme.Background);
@@ -16,7 +17,6 @@ public sealed class UiRenderer
         Rectangle left = new(6, y + 6, 258, Height - 12);
         Rectangle center = new(270, y + 6, 240, Height - 12);
         Rectangle right = new(516, y + 6, 118, Height - 12);
-
         DrawPanel(g, left, "PLAYER");
         DrawPanel(g, center, "LATEST ACTION");
         DrawPanel(g, right, "CONTROLS");
@@ -29,29 +29,28 @@ public sealed class UiRenderer
         using SolidBrush gold = new(UiTheme.Gold);
 
         g.DrawString($"{player.Name}   LV {player.Level}", body, text, left.X + 10, left.Y + 23);
-        g.DrawString($"DEPTH {player.DungeonLevel}   RUN {player.RunsCompleted + (runOver ? 0 : 1)}", small, muted, left.X + 10, left.Y + 38);
-
+        g.DrawString($"DEPTH {player.DungeonLevel}   RUN {player.RunsCompleted + (runOver || victory ? 0 : 1)}", small, muted, left.X + 10, left.Y + 38);
         DrawBar(g, new Rectangle(left.X + 10, left.Y + 51, 116, 14), player.Hp, Math.Max(1, player.TotalMaxHp), UiTheme.Hp, "HP");
         DrawBar(g, new Rectangle(left.X + 132, left.Y + 51, 116, 14), player.Experience, Math.Max(1, player.Level * 100), UiTheme.Xp, "XP");
-
         DrawStat(g, left.X + 10, left.Y + 72, "ATK", player.TotalAttack, UiTheme.Accent, body);
         DrawStat(g, left.X + 70, left.Y + 72, "ARM", player.TotalArmorClass, UiTheme.Accent, body);
         DrawStat(g, left.X + 130, left.Y + 72, "GOLD", player.Gold, UiTheme.Gold, body);
-        DrawStat(g, left.X + 202, left.Y + 72, "POT", player.Inventory.Count(i => i.Kind == Items.ItemKind.Potion), UiTheme.Good, body);
+        DrawStat(g, left.X + 202, left.Y + 72, "POT", player.Inventory.Count(i => i.Kind == ItemKind.Potion), UiTheme.Good, body);
 
         DrawAction(g, center, message, small, title, text, gold);
         DrawControls(g, right, small, gold, text);
 
-        if (runOver)
+        if (runOver || victory)
         {
-            using SolidBrush overlay = new(Color.FromArgb(80, 0, 0, 0));
+            using SolidBrush overlay = new(Color.FromArgb(95, 0, 0, 0));
             g.FillRectangle(overlay, 0, 0, 640, 360);
-            using Font death = new("Segoe UI", 18, FontStyle.Bold);
-            using SolidBrush deathBrush = new(UiTheme.Negative);
-            g.DrawString("YOU DIED", death, deathBrush, 260, 120);
+            using Font result = new("Segoe UI", 18, FontStyle.Bold);
+            using SolidBrush resultBrush = new(victory ? UiTheme.Gold : UiTheme.Negative);
+            g.DrawString(victory ? "MORIA CONQUERED" : "YOU DIED", result, resultBrush, victory ? 232 : 260, 112);
             using Font hint = new("Segoe UI", 8, FontStyle.Bold);
             using SolidBrush hintBrush = new(UiTheme.Text);
-            g.DrawString($"+{lastRunReward} LEGACY GOLD   •   ENTER FOR NEW RUN   •   ESC TO QUIT", hint, hintBrush, 184, 145);
+            string footer = victory ? "BALROG SLAIN   •   ENTER FOR NEW RUN   •   ESC TO QUIT" : $"+{lastRunReward} LEGACY GOLD   •   ENTER FOR NEW RUN   •   ESC TO QUIT";
+            g.DrawString(footer, hint, hintBrush, victory ? 215 : 184, 145);
         }
     }
 
@@ -120,10 +119,11 @@ public sealed class UiRenderer
     {
         string display = message.Length > 48 ? message[..45] + "..." : message;
         using SolidBrush accent = new(ActionColor(message));
+        using SolidBrush muted = new(UiTheme.Muted);
         g.FillRectangle(accent, rect.X + 12, rect.Y + 28, 4, 30);
         g.DrawString(display, title, text, rect.X + 24, rect.Y + 27);
-        g.DrawString("EQUIPMENT", small, gold, rect.X + 12, rect.Y + 69);
-        g.DrawString("Auto-loot enabled  •  Better gear auto-equips", small, new SolidBrush(UiTheme.Muted), rect.X + 72, rect.Y + 69);
+        g.DrawString("AUTO LOOT", small, gold, rect.X + 12, rect.Y + 69);
+        g.DrawString("Gear auto-equips", small, muted, rect.X + 76, rect.Y + 69);
     }
 
     private static void DrawControls(Graphics g, Rectangle rect, Font small, SolidBrush gold, SolidBrush text)
