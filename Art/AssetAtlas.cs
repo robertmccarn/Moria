@@ -49,6 +49,14 @@ public sealed class AssetAtlas : IDisposable
         g.DrawImageUnscaled(sprite, destination.X, destination.Y);
     }
 
+    public void DrawFloorBlock(Graphics g, Rectangle destination)
+    {
+        using SolidBrush fill = new(Color.FromArgb(112, 112, 112));
+        g.FillRectangle(fill, destination);
+        using Pen edge = new(Color.FromArgb(88, 88, 88));
+        g.DrawRectangle(edge, destination.X, destination.Y, destination.Width - 1, destination.Height - 1);
+    }
+
     public void DrawPlayer(Graphics g, Rectangle destination, Direction facing, bool alive)
     {
         destination = FitSprite(destination, 30);
