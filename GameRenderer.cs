@@ -65,7 +65,11 @@ public sealed partial class Game
                 continue;
             }
 
-            assets.DrawTile(g, dungeon[position].Type, rect, x, y);
+            if (dungeon[position].Type == TileType.Floor)
+                assets.DrawFloorBlock(g, rect);
+            else
+                assets.DrawTile(g, dungeon[position].Type, rect, x, y);
+
             if (!visibility.IsVisible(position))
             {
                 using SolidBrush fog = new(Color.FromArgb(175, 4, 5, 8));
