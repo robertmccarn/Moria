@@ -9,7 +9,9 @@ namespace Moria;
 
 public sealed partial class Game
 {
-    private const float PlayerMoveSpeed = 4.5f;
+    // Tuned toward the brisk, responsive feel of Link's movement rather than
+    // the slower pace of the original tile-by-tile roguelike movement.
+    private const float PlayerMoveSpeed = 7.5f;
     private const float PlayerCollisionRadius = 0.28f;
     private const int PlayerAttackCooldownMilliseconds = 350;
 
