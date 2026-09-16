@@ -28,14 +28,9 @@ public sealed class AssetAtlas : IDisposable
 
     public void DrawTile(Graphics g, TileType type, Rectangle destination, int x, int y)
     {
-        if (type == TileType.Floor)
-        {
-            DrawFloorBlock(g, destination, x, y);
-            return;
-        }
-
         Rectangle source = type switch
         {
+            TileType.Floor => FloorRect(Math.Abs(x + y) % 8),
             TileType.Wall => WallRect(Math.Abs(x * 3 + y) % 8),
             TileType.Door => new Rectangle(25, 473, 60, 60),
             TileType.StairsUp => new Rectangle(500, 473, 60, 60),
@@ -43,28 +38,16 @@ public sealed class AssetAtlas : IDisposable
             TileType.Trap => new Rectangle(870, 473, 60, 60),
             _ => new Rectangle(1360, 135, 60, 60)
         };
-
         string key = $"tile:{type}:{source.X}:{source.Y}:{destination.Width}:{destination.Height}";
         if (!tileCache.TryGetValue(key, out Bitmap? sprite))
         {
             sprite = ExtractScaledSprite(tiles, source, destination.Width, destination.Height);
             tileCache[key] = sprite;
         }
-
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImageUnscaled(sprite, destination.X, destination.Y);
     }
-
-    private static void DrawFloorBlock(Graphics g, Rectangle destination, int x, int y)
-    {
-        using SolidBrush fill = new(Color.FromArgb(92, 94, 98));
-        g.FillRectangle(fill, destination);
-        using Pen edge = new(Color.FromArgb(112, 114, 118));
-        g.DrawRectangle(edge, destination.X, destination.Y, destination.Width - 1, destination.Height - 1);
-    }
-
-    private static Rectangle WallRect(int index) => new(680 + index * 80, 135, 64, 64);
 
     public void DrawPlayer(Graphics g, Rectangle destination, Direction facing, bool alive)
     {
@@ -124,6 +107,9 @@ public sealed class AssetAtlas : IDisposable
         return new Rectangle(destination.X + (destination.Width - size) / 2, destination.Y + (destination.Height - size) / 2, size, size);
     }
 
+    private static Rectangle FloorRect(int index) => new(25 + index * 80, 135, 64, 64);
+    private static Rectangle WallRect(int index) => new(680 + index * 80, 135, 64, 64);
+
     private void DrawSprite(Graphics g, Bitmap sheet, Rectangle source, Rectangle destination, string key)
     {
         if (!cache.TryGetValue(key, out Bitmap? sprite))
@@ -134,6 +120,21 @@ public sealed class AssetAtlas : IDisposable
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(sprite, destination);
+    }
+
+    private static Bitmap ExtractScaledSprite(Bitmap sheet, Rectangle source, int width, int height)
+    {
+        Bitmap crop = ExtractSprite(sheet, source);
+        if (crop.Width == width && crop.Height == height) return crop;
+        Bitmap scaled = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(scaled))
+        {
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(crop, new Rectangle(0, 0, width, height));
+        }
+        crop.Dispose();
+        return scaled;
     }
 
     private static Bitmap ExtractSprite(Bitmap sheet, Rectangle source)
@@ -154,16 +155,6 @@ public sealed class AssetAtlas : IDisposable
             crop.SetPixel(x, y, Color.FromArgb(alpha, pixel.R, pixel.G, pixel.B));
         }
         return crop;
-    }
-
-    private static Bitmap ExtractScaledSprite(Bitmap sheet, Rectangle source, int width, int height)
-    {
-        Bitmap sprite = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using Graphics g = Graphics.FromImage(sprite);
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(sheet, new Rectangle(0, 0, width, height), source, GraphicsUnit.Pixel);
-        return sprite;
     }
 
     private static Color Bilinear(Color tl, Color tr, Color bl, Color br, double u, double v)
