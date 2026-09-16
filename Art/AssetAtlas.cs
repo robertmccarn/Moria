@@ -14,6 +14,7 @@ public sealed class AssetAtlas : IDisposable
     private readonly Bitmap monsters;
     private readonly Bitmap items;
     private readonly Dictionary<string, Bitmap> cache = new();
+    private readonly Dictionary<string, Bitmap> tileCache = new();
 
     private static string AssetPath(string file) => Path.Combine(AppContext.BaseDirectory, "assets", file);
 
@@ -37,7 +38,17 @@ public sealed class AssetAtlas : IDisposable
             TileType.Trap => new Rectangle(870, 473, 60, 60),
             _ => new Rectangle(1360, 135, 60, 60)
         };
-        DrawCropped(g, tiles, source, destination);
+
+        string key = $"tile:{type}:{source.X}:{source.Y}:{destination.Width}:{destination.Height}";
+        if (!tileCache.TryGetValue(key, out Bitmap? sprite))
+        {
+            sprite = ExtractScaledSprite(tiles, source, destination.Width, destination.Height);
+            tileCache[key] = sprite;
+        }
+
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImageUnscaled(sprite, destination.X, destination.Y);
     }
 
     public void DrawPlayer(Graphics g, Rectangle destination, Direction facing, bool alive)
@@ -122,11 +133,20 @@ public sealed class AssetAtlas : IDisposable
         g.DrawImage(sprite, destination);
     }
 
-    private static void DrawCropped(Graphics g, Bitmap sheet, Rectangle source, Rectangle destination)
+    private static Bitmap ExtractScaledSprite(Bitmap sheet, Rectangle source, int width, int height)
     {
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(sheet, destination, source, GraphicsUnit.Pixel);
+        Bitmap crop = ExtractSprite(sheet, source);
+        if (crop.Width == width && crop.Height == height) return crop;
+
+        Bitmap scaled = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(scaled))
+        {
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(crop, new Rectangle(0, 0, width, height));
+        }
+        crop.Dispose();
+        return scaled;
     }
 
     private static Bitmap ExtractSprite(Bitmap sheet, Rectangle source)
@@ -174,7 +194,9 @@ public sealed class AssetAtlas : IDisposable
     public void Dispose()
     {
         foreach (Bitmap bitmap in cache.Values) bitmap.Dispose();
+        foreach (Bitmap bitmap in tileCache.Values) bitmap.Dispose();
         cache.Clear();
+        tileCache.Clear();
         tiles.Dispose();
         warrior.Dispose();
         monsters.Dispose();
