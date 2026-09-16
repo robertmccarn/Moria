@@ -53,7 +53,6 @@ public sealed partial class Game : Form
             running = false;
             redrawTimer.Stop();
             redrawTimer.Dispose();
-            assets.Dispose();
         };
 
         redrawTimer = new WinFormsTimer { Interval = 50 };
@@ -71,8 +70,9 @@ public sealed partial class Game : Form
             return;
         }
 
-        player = new Player(name, new Position(1, 1), (int)Math.Min(LoadLegacyGold(), int.MaxValue));
-        StartRun();
+        Player newPlayer = new(name, new Position(1, 1), (int)Math.Min(LoadLegacyGold(), int.MaxValue));
+        player = newPlayer;
+        StartRun(newPlayer);
         started = true;
         Focus();
         Invalidate();
@@ -97,335 +97,20 @@ public sealed partial class Game : Form
         return dialog.ShowDialog(this) == DialogResult.OK ? nameBox.Text.Trim() : string.Empty;
     }
 
-    private void StartRun()
+    private void StartRun(Player currentPlayer)
     {
         dungeon = new Dungeon(random.Next());
-        player.DungeonLevel = 1;
-        player.Hp = player.TotalMaxHp;
-        player.Mana = player.MaxMana;
-        player.Gold = 100;
-        player.Experience = 0;
-        dungeon.Generate(player.DungeonLevel);
+        currentPlayer.DungeonLevel = 1;
+        currentPlayer.Hp = currentPlayer.TotalMaxHp;
+        currentPlayer.Mana = currentPlayer.MaxMana;
+        currentPlayer.Gold = 100;
+        currentPlayer.Experience = 0;
+        dungeon.Generate(currentPlayer.DungeonLevel);
         visibility = new VisibilityMap(dungeon.Width, dungeon.Height);
-        player.Position = dungeon.UpStairs;
+        currentPlayer.Position = dungeon.UpStairs;
         RecalculateVisibility(8);
         runOver = false;
         victory = false;
         chatLog.Clear();
-        SetMessage($"Run {player.RunsCompleted + 1} begins. Descend into Moria and survive.");
+        SetMessage($"Depth {currentPlayer.DungeonLevel}. Find the stairs down.");
     }
-
-    private void RecalculateVisibility(int radius) => fieldOfView.Recalculate(dungeon, player.Position, radius, visibility);
-
-    private void OnKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (!started || !running) return;
-        GameAction action = InputManager.Translate(e.KeyCode);
-
-        if (runOver || victory)
-        {
-            if (action == GameAction.NewRun) StartFreshRun();
-            else if (action == GameAction.Quit) { running = false; Close(); }
-            return;
-        }
-
-        if (!player.Alive) { EndRun(); return; }
-
-        bool consumesTurn = false;
-        switch (action)
-        {
-            case GameAction.MoveUp: MovePlayer(Direction.Up); consumesTurn = true; break;
-            case GameAction.MoveDown: MovePlayer(Direction.Down); consumesTurn = true; break;
-            case GameAction.MoveLeft: MovePlayer(Direction.Left); consumesTurn = true; break;
-            case GameAction.MoveRight: MovePlayer(Direction.Right); consumesTurn = true; break;
-            case GameAction.DrinkPotion: Drink(); consumesTurn = true; break;
-            case GameAction.Interact: consumesTurn = Interact(); break;
-            case GameAction.ChatLog: ShowChatLog(); break;
-            case GameAction.Quit: running = false; Close(); return;
-        }
-
-        if (running && player.Alive && consumesTurn && !victory)
-            MonstersAct();
-        if (!player.Alive) EndRun();
-        Invalidate();
-    }
-
-    private void MovePlayer(Direction direction)
-    {
-        Position target = player.Position.Step(direction);
-        if (!dungeon.IsWalkable(target))
-        {
-            SetMessage("You cannot move there.");
-            return;
-        }
-
-        Monster? monster = dungeon.MonsterAt(target);
-        if (monster != null)
-        {
-            Attack(monster);
-            return;
-        }
-
-        player.Position = target;
-        RecalculateVisibility(7);
-        Tile tile = dungeon[target];
-        if (tile.Type == TileType.Trap)
-        {
-            int damage = random.Next(1, 5);
-            player.Hp -= damage;
-            SetMessage($"A trap wounds you for {damage}!");
-        }
-        else if (target == dungeon.DownStairs)
-            SetMessage("You found the stairs down. Press E to descend.");
-        AutoLoot();
-    }
-
-    private void Attack(Monster monster)
-    {
-        CombatResult result = combat.PlayerAttack(player, monster, random);
-        if (!result.Hit)
-        {
-            SetMessage($"You miss the {monster.Name}.");
-            return;
-        }
-
-        SetMessage(result.Critical ? $"CRITICAL! You cleave the {monster.Name} for {result.Damage}." : $"You hit the {monster.Name} for {result.Damage}.");
-        if (!result.Defeated) return;
-
-        int xp = monster.ExperienceValue;
-        int gold = random.Next(4, 13) + player.DungeonLevel * 2;
-        player.Gold += gold;
-        int oldLevel = player.Level;
-        player.GainExperience(xp);
-        SetMessage($"The {monster.Name} dies. +{xp} XP, +{gold} gold.");
-        if (player.Level > oldLevel) SetMessage($"LEVEL UP! You are now level {player.Level}.");
-        DropLoot(monster.Position, player.DungeonLevel);
-        AutoLoot();
-        if (player.DungeonLevel == Dungeon.MaximumDepth && monster.IsBoss) WinRun();
-    }
-
-    private void DropLoot(Position position, int level)
-    {
-        Tile tile = dungeon[position];
-        int roll = random.Next(100);
-        if (roll < 45)
-        {
-            Gear gear = CreateLoot(level);
-            tile.GearLoot.Add(gear);
-            SetMessage($"Loot dropped: {RarityName(gear.Rarity)} {gear.Name}.");
-        }
-        else if (roll < 70)
-        {
-            tile.PotionCount++;
-            SetMessage("A healing potion drops.");
-        }
-    }
-
-    private Gear CreateLoot(int level)
-    {
-        int rarityRoll = random.Next(100);
-        int rarity = rarityRoll < 60 ? 1 : rarityRoll < 88 ? 2 : rarityRoll < 98 ? 3 : 4;
-        int power = Math.Max(1, level + rarity - 1);
-        GearSlot slot = (GearSlot)random.Next(3);
-        string adjective = rarity switch { 1 => "Worn", 2 => "Fine", 3 => "Runed", _ => "Mythic" };
-        if (slot == GearSlot.Weapon)
-            return new Gear($"{adjective} {WeaponName()}", '†', slot, 2 + power + rarity, 0, 0, 25 * power * rarity, rarity);
-        if (slot == GearSlot.Armor)
-            return new Gear($"{adjective} {ArmorName()}", '[', slot, 0, 1 + power / 2 + rarity, rarity >= 2 ? power * rarity : 0, 30 * power * rarity, rarity);
-        return new Gear($"{adjective} Ring of the Depths", 'o', slot, rarity >= 3 ? rarity : random.Next(0, 2), random.Next(0, 2) + (rarity >= 2 ? 1 : 0), power * rarity, 40 * power * rarity, rarity);
-    }
-
-    private string WeaponName() => new[] { "War Axe", "Steel Falchion", "Goblin Cleaver", "Deepfang", "Starblade" }[random.Next(5)];
-    private string ArmorName() => new[] { "Chain Hauberk", "Iron Cuirass", "Runed Mail", "Deepguard Plate", "Wyrmhide Armor" }[random.Next(5)];
-
-    private void MonstersAct()
-    {
-        foreach (Monster monster in dungeon.Monsters.Where(m => m.Alive).ToList())
-        {
-            if (monster.IsBoss && monster.Position == dungeon.DownStairs) continue;
-            int dy = player.Position.Y - monster.Position.Y;
-            int dx = player.Position.X - monster.Position.X;
-            if (Math.Abs(dy) + Math.Abs(dx) > 10) continue;
-            Position target = monster.Position;
-            if (Math.Abs(dy) >= Math.Abs(dx)) target = new Position(target.Y + Math.Sign(dy), target.X);
-            else target = new Position(target.Y, target.X + Math.Sign(dx));
-
-            if (target == player.Position)
-            {
-                CombatResult result = combat.MonsterAttack(player, monster, random);
-                SetMessage(result.Hit ? $"The {monster.Name} hits you for {result.Damage}!" : $"The {monster.Name} misses you.");
-            }
-            else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null)
-                monster.Position = target;
-            if (!player.Alive) return;
-        }
-    }
-
-    private bool Interact()
-    {
-        if (player.Position == dungeon.DownStairs)
-        {
-            if (player.DungeonLevel == Dungeon.MaximumDepth)
-            {
-                SetMessage("The Balrog guards the final stair. Defeat it to conquer Moria.");
-                return false;
-            }
-            Descend();
-            return true;
-        }
-        ShowInventory();
-        return false;
-    }
-
-    private void Descend()
-    {
-        player.DungeonLevel++;
-        player.Gold += 15 + player.DungeonLevel * 3;
-        dungeon.Generate(player.DungeonLevel);
-        visibility = new VisibilityMap(dungeon.Width, dungeon.Height);
-        player.Position = dungeon.UpStairs;
-        RecalculateVisibility(8);
-        SaveProgress();
-        SetMessage($"You descend to level {player.DungeonLevel}. Enemy power rises with depth.");
-    }
-
-    private void AutoLoot()
-    {
-        Tile tile = dungeon[player.Position];
-        int gearCount = tile.GearLoot.Count;
-        int potionCount = tile.PotionCount;
-        if (gearCount == 0 && potionCount == 0) return;
-        foreach (Gear gear in tile.GearLoot)
-        {
-            player.GearInventory.Add(gear);
-            if (ShouldEquip(gear))
-            {
-                player.Equip(gear);
-                SetMessage($"Auto-equipped {gear.Name}: {GearSummary(gear)}");
-            }
-        }
-        tile.GearLoot.Clear();
-        for (int i = 0; i < potionCount; i++) player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
-        tile.PotionCount = 0;
-        SetMessage($"Auto-looted {gearCount + potionCount} item{(gearCount + potionCount == 1 ? "" : "s")}.");
-    }
-
-    private bool ShouldEquip(Gear gear) => player.Equipped(gear.Slot) is not Gear current || GearScore(gear) > GearScore(current);
-    private static int GearScore(Gear gear) => gear.AttackBonus * 5 + gear.ArmorBonus * 5 + gear.MaxHpBonus + gear.Rarity * 2;
-
-    private static string GearSummary(Gear gear)
-    {
-        List<string> parts = new();
-        if (gear.AttackBonus > 0) parts.Add($"+{gear.AttackBonus} ATK");
-        if (gear.ArmorBonus > 0) parts.Add($"+{gear.ArmorBonus} ARM");
-        if (gear.MaxHpBonus > 0) parts.Add($"+{gear.MaxHpBonus} HP");
-        return string.Join(", ", parts);
-    }
-
-    private void Drink()
-    {
-        Item? potion = player.Inventory.FirstOrDefault(i => i.Kind == ItemKind.Potion);
-        if (potion == null) { SetMessage("You have no potions."); return; }
-        player.Inventory.Remove(potion);
-        int healed = player.TotalMaxHp - player.Hp;
-        player.Hp = player.TotalMaxHp;
-        SetMessage(healed > 0 ? $"You drink a healing potion and recover {healed} HP." : "You drink a healing potion, but you are already at full health.");
-    }
-
-    private void ShowInventory()
-    {
-        string gear = player.GearInventory.Count == 0 ? "No spare gear." : string.Join(Environment.NewLine, player.GearInventory.Select(g => $"{RarityName(g.Rarity)} {g.Name} [{g.Slot}] {GearSummary(g)}"));
-        string items = player.Inventory.Count == 0 ? "No potions." : string.Join(Environment.NewLine, player.Inventory.Select(i => $"{i.Name}    {i.Value} gp"));
-        string equipped = $"WEAPON: {player.Weapon?.Name ?? "None"}\nARMOR:  {player.Armor?.Name ?? "None"}\nRING:   {player.Ring?.Name ?? "None"}";
-        MessageBox.Show(this, $"EQUIPPED\n{equipped}\n\nLOOT\n{gear}\n\nPOTIONS\n{items}", "Inventory & Gear", MessageBoxButtons.OK, MessageBoxIcon.None);
-        Focus();
-    }
-
-    private void ShowChatLog()
-    {
-        string text = chatLog.Count == 0 ? "No actions yet." : string.Join(Environment.NewLine, chatLog);
-        using Form dialog = new()
-        {
-            Text = "Moria — Chat Log",
-            ClientSize = new Size(760, 620),
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MinimizeBox = false,
-            MaximizeBox = false
-        };
-        TextBox log = new()
-        {
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(12, 13, 17),
-            ForeColor = Color.Gainsboro,
-            Font = new Font("Consolas", 10),
-            Text = text
-        };
-        dialog.Controls.Add(log);
-        dialog.ShowDialog(this);
-        Focus();
-    }
-
-    private static string RarityName(int rarity) => rarity switch { 1 => "Common", 2 => "Rare", 3 => "Epic", _ => "Legendary" };
-
-    private void SetMessage(string text)
-    {
-        message = text;
-        chatLog.Add(text);
-        if (chatLog.Count > 250) chatLog.RemoveAt(0);
-    }
-
-    private void EndRun()
-    {
-        if (runOver || victory) return;
-        runOver = true;
-        player.RunsCompleted++;
-        lastRunReward = Math.Max(10, player.Gold / 3 + player.DungeonLevel * 10);
-        player.PermanentGold += lastRunReward;
-        SaveLegacyGold();
-        SetMessage($"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.");
-    }
-
-    private void WinRun()
-    {
-        if (victory || runOver) return;
-        victory = true;
-        player.RunsCompleted++;
-        lastRunReward = Math.Max(250, player.Gold + player.DungeonLevel * 25);
-        player.PermanentGold += lastRunReward;
-        SaveLegacyGold();
-        SetMessage("The Balrog falls. Moria has been conquered!");
-    }
-
-    private void StartFreshRun()
-    {
-        int legacy = player.PermanentGold;
-        player = new Player(player.Name, new Position(1, 1), legacy);
-        StartRun();
-        SetMessage($"New run begins. Legacy Gold: {legacy}.");
-        Focus();
-        Invalidate();
-    }
-
-    private long LoadLegacyGold()
-    {
-        try
-        {
-            if (!File.Exists(MetaFile)) return 0;
-            string value = File.ReadAllText(MetaFile).Split('|')[0];
-            return long.TryParse(value, out long gold) ? Math.Max(0, gold) : 0;
-        }
-        catch { return 0; }
-    }
-
-    private void SaveLegacyGold() => File.WriteAllText(MetaFile, $"{player.PermanentGold}|{player.RunsCompleted}");
-
-    private void SaveProgress()
-    {
-        File.WriteAllText("moria.sav", string.Join('|', player.Name, player.Level, player.Experience, player.Hp, player.TotalMaxHp, player.Gold, player.DungeonLevel, player.PermanentGold));
-        SaveLegacyGold();
-    }
-}
