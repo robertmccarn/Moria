@@ -26,10 +26,120 @@ public sealed partial class Game
             g.SmoothingMode = SmoothingMode.None;
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.Half;
-            DrawWorld(g);
-            uiRenderer.Draw(g, player, message, runOver, victory, lastRunReward);
+
+            if (!started)
+                DrawTitleScreen(g);
+            else
+            {
+                DrawWorld(g);
+                uiRenderer.Draw(g, player, message, runOver, victory, lastRunReward);
+            }
         }
         virtualCanvas.Present(target, frame);
+    }
+
+    private void DrawTitleScreen(Graphics g)
+    {
+        g.Clear(Color.FromArgb(4, 5, 8));
+
+        using SolidBrush upperGlow = new(Color.FromArgb(10, 12, 18));
+        g.FillRectangle(upperGlow, 0, 0, VirtualCanvas.Width, 215);
+        DrawCavernBackdrop(g);
+
+        using Pen outer = new(Color.FromArgb(68, 72, 82), 2);
+        using Pen inner = new(Color.FromArgb(38, 41, 49), 1);
+        g.DrawRectangle(outer, 72, 48, 496, 256);
+        g.DrawRectangle(inner, 78, 54, 484, 244);
+
+        using Font titleShadow = new("Consolas", 38, FontStyle.Bold);
+        using Font title = new("Consolas", 38, FontStyle.Bold);
+        using Font subtitle = new("Consolas", 9, FontStyle.Bold);
+        using Font label = new("Consolas", 10, FontStyle.Bold);
+        using Font input = new("Consolas", 14, FontStyle.Bold);
+        using Font small = new("Consolas", 8, FontStyle.Bold);
+
+        using SolidBrush titleShadowBrush = new(Color.FromArgb(20, 22, 27));
+        using SolidBrush titleBrush = new(Color.FromArgb(224, 176, 62));
+        using SolidBrush subtitleBrush = new(Color.FromArgb(154, 158, 168));
+        using SolidBrush labelBrush = new(Color.FromArgb(218, 220, 224));
+        using SolidBrush divider = new(Color.FromArgb(112, 91, 47));
+        using SolidBrush beginBrush = new(Color.FromArgb(210, 170, 75));
+        using SolidBrush hintBrush = new(Color.FromArgb(112, 116, 126));
+        using SolidBrush legacyBrush = new(Color.FromArgb(122, 128, 138));
+
+        DrawCentered(g, "MORIA", titleShadow, titleShadowBrush, 106, 3);
+        DrawCentered(g, "MORIA", title, titleBrush, 103);
+        DrawCentered(g, "A DESCENT INTO DARKNESS", subtitle, subtitleBrush, 151);
+
+        g.FillRectangle(divider, 142, 168, 356, 1);
+        g.FillRectangle(divider, 222, 167, 196, 3);
+        DrawCentered(g, "ENTER YOUR NAME", label, labelBrush, 188);
+
+        Rectangle nameBox = new(174, 208, 292, 36);
+        using SolidBrush inputBackground = new(Color.FromArgb(10, 12, 16));
+        using Pen inputBorder = new(Color.FromArgb(132, 106, 52), 2);
+        g.FillRectangle(inputBackground, nameBox);
+        g.DrawRectangle(inputBorder, nameBox);
+
+        string displayName = titleName.Length == 0 ? "NAME" : titleName;
+        using SolidBrush inputText = new(titleName.Length == 0 ? Color.FromArgb(82, 86, 96) : Color.Gainsboro);
+        SizeF textSize = g.MeasureString(displayName, input);
+        float textX = nameBox.X + (nameBox.Width - textSize.Width) / 2f;
+        g.DrawString(displayName, input, inputText, textX, nameBox.Y + 7);
+
+        if (titleName.Length > 0 && (Environment.TickCount / 500) % 2 == 0)
+        {
+            float cursorX = Math.Min(nameBox.Right - 12, textX + textSize.Width + 2);
+            using Pen cursor = new(Color.FromArgb(224, 176, 62), 2);
+            g.DrawLine(cursor, cursorX, nameBox.Y + 7, cursorX, nameBox.Bottom - 7);
+        }
+
+        DrawCentered(g, "ENTER  BEGIN RUN", small, beginBrush, 258);
+        DrawCentered(g, "BACKSPACE  EDIT     ESC  QUIT", small, hintBrush, 274);
+        DrawCentered(g, $"LEGACY GOLD  {LoadLegacyGold():N0}", small, legacyBrush, 290);
+    }
+
+    private static void DrawCavernBackdrop(Graphics g)
+    {
+        using SolidBrush rock = new(Color.FromArgb(20, 22, 27));
+        using SolidBrush rockLight = new(Color.FromArgb(29, 31, 37));
+        using SolidBrush deep = new(Color.FromArgb(11, 13, 17));
+
+        Point[] ceiling =
+        [
+            new(0, 0), new(0, 70), new(72, 70), new(92, 58), new(130, 64),
+            new(168, 45), new(214, 55), new(258, 38), new(304, 54),
+            new(350, 40), new(398, 57), new(444, 44), new(486, 61),
+            new(528, 48), new(568, 70), new(640, 70), new(640, 0)
+        ];
+        g.FillPolygon(rock, ceiling);
+
+        Point[] floor =
+        [
+            new(0, 360), new(0, 322), new(72, 322), new(102, 311), new(146, 318),
+            new(190, 305), new(236, 316), new(278, 302), new(320, 315),
+            new(364, 303), new(410, 317), new(456, 307), new(502, 319),
+            new(548, 309), new(584, 322), new(640, 322), new(640, 360)
+        ];
+        g.FillPolygon(deep, floor);
+
+        g.FillRectangle(rockLight, 112, 63, 6, 18);
+        g.FillRectangle(rockLight, 524, 66, 7, 22);
+        g.FillRectangle(rockLight, 88, 86, 4, 12);
+        g.FillRectangle(rockLight, 552, 91, 5, 16);
+
+        using Pen path = new(Color.FromArgb(31, 33, 39), 1);
+        g.DrawLine(path, 95, 320, 160, 296);
+        g.DrawLine(path, 160, 296, 216, 320);
+        g.DrawLine(path, 424, 320, 480, 297);
+        g.DrawLine(path, 480, 297, 545, 321);
+    }
+
+    private static void DrawCentered(Graphics g, string text, Font font, Brush brush, float y, float xOffset = 0)
+    {
+        SizeF size = g.MeasureString(text, font);
+        float x = (VirtualCanvas.Width - size.Width) / 2f + xOffset;
+        g.DrawString(text, font, brush, x, y);
     }
 
     private void DrawWorld(Graphics g)
@@ -162,7 +272,6 @@ public sealed partial class Game
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        if (!started) return;
         DrawFrame(e.Graphics);
     }
 }
