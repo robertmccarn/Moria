@@ -5,7 +5,13 @@ namespace Moria;
 
 public sealed partial class Game
 {
-    private readonly DisplayModeController displayModeController = new(this);
+    private DisplayModeController? displayModeController;
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        displayModeController ??= new DisplayModeController(this);
+    }
 
     private sealed class DisplayModeController
     {
