@@ -17,6 +17,7 @@ public sealed partial class Game : Form
     private const int MapHeight = 256;
     private const int StatusHeight = 104;
     private const string MetaFile = "moria.meta";
+    private const int MaxPlayerNameLength = 16;
 
     private readonly Random random = new();
     private readonly WinFormsTimer redrawTimer;
@@ -27,6 +28,7 @@ public sealed partial class Game : Form
     private Player player = null!;
     private VisibilityMap visibility = null!;
     private string message = "Welcome to Moria.";
+    private string titleName = string.Empty;
     private bool running = true;
     private bool started;
     private bool runOver;
@@ -35,6 +37,7 @@ public sealed partial class Game : Form
 
     public int LastRunReward => lastRunReward;
     public IReadOnlyList<string> ChatLog => chatLog;
+    public string TitleName => titleName;
 
     public Game()
     {
@@ -48,6 +51,7 @@ public sealed partial class Game : Form
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         KeyDown += OnKeyDown;
+        KeyPress += OnKeyPress;
         FormClosed += (_, _) =>
         {
             running = false;
@@ -58,15 +62,34 @@ public sealed partial class Game : Form
         redrawTimer = new WinFormsTimer { Interval = 50 };
         redrawTimer.Tick += (_, _) => Invalidate();
         redrawTimer.Start();
-        Shown += (_, _) => BeginGame();
+        Shown += (_, _) =>
+        {
+            Focus();
+            Invalidate();
+        };
+    }
+
+    private void OnKeyPress(object? sender, KeyPressEventArgs e)
+    {
+        if (started || !running) return;
+        if (char.IsControl(e.KeyChar)) return;
+        if (char.IsLetterOrDigit(e.KeyChar) || e.KeyChar is ' ' or '-' or '_')
+        {
+            if (titleName.Length < MaxPlayerNameLength)
+            {
+                titleName += e.KeyChar;
+                Invalidate();
+            }
+            e.Handled = true;
+        }
     }
 
     private void BeginGame()
     {
-        string name = AskForName();
+        string name = titleName.Trim();
         if (name.Length == 0)
         {
-            Close();
+            titleName = string.Empty;
             return;
         }
 
@@ -78,23 +101,32 @@ public sealed partial class Game : Form
         Invalidate();
     }
 
-    private string AskForName()
+    private void HandleTitleInput(KeyEventArgs e)
     {
-        using Form dialog = new()
+        if (e.KeyCode == Keys.Back)
         {
-            Text = "New Adventurer",
-            ClientSize = new Size(390, 150),
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MinimizeBox = false,
-            MaximizeBox = false
-        };
-        Label label = new() { Text = "Warrior name:", Left = 18, Top = 18, AutoSize = true };
-        TextBox nameBox = new() { Left = 18, Top = 44, Width = 350 };
-        Button button = new() { Text = "Enter Moria", Left = 252, Top = 88, Width = 116, DialogResult = DialogResult.OK };
-        dialog.Controls.AddRange([label, nameBox, button]);
-        dialog.AcceptButton = button;
-        return dialog.ShowDialog(this) == DialogResult.OK ? nameBox.Text.Trim() : string.Empty;
+            if (titleName.Length > 0)
+                titleName = titleName[..^1];
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            Invalidate();
+            return;
+        }
+
+        if (e.KeyCode == Keys.Enter)
+        {
+            BeginGame();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Escape)
+        {
+            running = false;
+            Close();
+            return;
+        }
     }
 
     private void StartRun(Player currentPlayer)
@@ -119,7 +151,13 @@ public sealed partial class Game : Form
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!started || !running) return;
+        if (!started)
+        {
+            HandleTitleInput(e);
+            return;
+        }
+
+        if (!running) return;
         GameAction action = InputManager.Translate(e.KeyCode);
 
         if (runOver || victory)
