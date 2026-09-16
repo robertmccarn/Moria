@@ -5,13 +5,32 @@ namespace Moria.Input;
 
 public static class InputManager
 {
+    private const int DoubleTapWindowMilliseconds = 250;
     private static readonly HashSet<Keys> HeldMovementKeys = new();
+    private static readonly Dictionary<Keys, long> LastMovementPress = new();
+    private static Direction pendingRollDirection = Direction.None;
 
     public static GameAction Translate(Keys key)
     {
         if (IsMovementKey(key))
         {
-            HeldMovementKeys.Add(key);
+            if (!HeldMovementKeys.Contains(key))
+            {
+                long now = Environment.TickCount64;
+                if (LastMovementPress.TryGetValue(key, out long lastPress) &&
+                    now - lastPress <= DoubleTapWindowMilliseconds)
+                {
+                    pendingRollDirection = ToDirection(key);
+                    LastMovementPress.Remove(key);
+                }
+                else
+                {
+                    LastMovementPress[key] = now;
+                }
+
+                HeldMovementKeys.Add(key);
+            }
+
             return GameAction.None;
         }
 
@@ -26,9 +45,21 @@ public static class InputManager
         };
     }
 
+    public static Direction ConsumeRollDirection()
+    {
+        Direction direction = pendingRollDirection;
+        pendingRollDirection = Direction.None;
+        return direction;
+    }
+
     public static void Release(Keys key) => HeldMovementKeys.Remove(key);
 
-    public static void ClearMovementKeys() => HeldMovementKeys.Clear();
+    public static void ClearMovementKeys()
+    {
+        HeldMovementKeys.Clear();
+        LastMovementPress.Clear();
+        pendingRollDirection = Direction.None;
+    }
 
     public static (float X, float Y) GetMovementVector()
     {
@@ -46,4 +77,13 @@ public static class InputManager
     private static bool IsMovementKey(Keys key) => key is
         Keys.Up or Keys.Down or Keys.Left or Keys.Right or
         Keys.W or Keys.A or Keys.S or Keys.D;
+
+    private static Direction ToDirection(Keys key) => key switch
+    {
+        Keys.Up or Keys.W => Direction.Up,
+        Keys.Down or Keys.S => Direction.Down,
+        Keys.Left or Keys.A => Direction.Left,
+        Keys.Right or Keys.D => Direction.Right,
+        _ => Direction.None
+    };
 }
