@@ -20,6 +20,7 @@ public sealed class Dungeon
     public List<Monster> Monsters { get; } = new();
     public Position UpStairs { get; private set; }
     public Position DownStairs { get; private set; }
+    public Monster? Boss { get; private set; }
 
     public Dungeon(int seed)
     {
@@ -39,6 +40,7 @@ public sealed class Dungeon
         AllocateTiles();
         rooms.Clear();
         Monsters.Clear();
+        Boss = null;
 
         int roomTarget = Math.Min(34, 10 + level / 2);
         int attempts = roomTarget * 5;
@@ -75,7 +77,30 @@ public sealed class Dungeon
         int monsterCount = Math.Min(5 + level * 2, 30);
         for (int i = 0; i < monsterCount; i++) SpawnMonster(level);
 
+        SpawnBoss(level);
         RevealAround(UpStairs, 8);
+    }
+
+    public static bool HasBoss(int level) => level is 10 or 25 or 40 or 50;
+
+    private void SpawnBoss(int level)
+    {
+        if (!HasBoss(level)) return;
+
+        (string name, char symbol) = level switch
+        {
+            10 => ("Orc Warlord", 'W'),
+            25 => ("Stone Colossus", 'C'),
+            40 => ("Demon Lord", 'D'),
+            _ => ("Balrog", 'B')
+        };
+
+        int hp = 55 + level * 7;
+        int armor = 12 + level / 2;
+        int attack = 5 + level / 2;
+        int experience = 150 * level;
+        Boss = new Monster(name, symbol, DownStairs, hp, armor, attack, level, experience, true);
+        Monsters.Add(Boss);
     }
 
     private void SetDimensions(int level)
