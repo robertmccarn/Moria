@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using Moria.Art;
 using Moria.Combat;
@@ -71,6 +72,9 @@ public sealed partial class Game
         if (CurrentBattle == null)
             return base.ProcessCmdKey(ref msg, keyData);
 
+        if (battleOverlay?.IsAnimating == true)
+            return true;
+
         Keys key = keyData & Keys.KeyCode;
         if (key is Keys.D1 or Keys.NumPad1) return ExecuteBattleMenu(0);
         if (key is Keys.D2 or Keys.NumPad2) return ExecuteBattleMenu(1);
@@ -100,18 +104,23 @@ public sealed partial class Game
 
     private bool ExecuteBattleMenu(int index)
     {
-        if (CurrentBattle == null)
+        if (CurrentBattle == null || battleOverlay?.IsAnimating == true)
             return false;
 
         battleMenuIndex = Math.Clamp(index, 0, 4);
         BattleAction action = (BattleAction)battleMenuIndex;
+
+        Dictionary<Monster, int> enemyHpBefore = CurrentBattle.Enemies.ToDictionary(enemy => enemy, enemy => enemy.Hp);
+        int playerHpBefore = player.Hp;
+
         CurrentBattle.Execute(action);
         SetMessage(CurrentBattle.Message);
-        battleOverlay?.Invalidate();
 
-        if (CurrentBattle.Finished)
-            FinishBattle(CurrentBattle);
+        Dictionary<Monster, int> enemyDamage = CurrentBattle.Enemies
+            .ToDictionary(enemy => enemy, enemy => Math.Max(0, enemyHpBefore[enemy] - Math.Max(0, enemy.Hp)));
+        int playerDamage = Math.Max(0, playerHpBefore - Math.Max(0, player.Hp));
 
+        battleOverlay?.PlayActionAnimation(action, CurrentBattle, enemyDamage, playerDamage);
         return true;
     }
 
@@ -122,13 +131,10 @@ public sealed partial class Game
 
         List<Monster> group = dungeon.Monsters
             .Where(enemy => enemy.Alive)
-            .Where(enemy => Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X) <= BattleGroupRadius)
-            .OrderBy(enemy => Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X))
+            .Where(enemy => enemy == monster || Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X) <= BattleGroupRadius)
+            .OrderBy(enemy => enemy == monster ? -1 : Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X))
             .Take(BattleGroupLimit)
             .ToList();
-
-        if (!group.Contains(monster))
-            group.Insert(0, monster);
 
         playerRolling = false;
         InputManager.ClearMovementKeys();
@@ -209,6 +215,7 @@ internal sealed class BattleOverlayControl : Control
 {
     private readonly Game game;
     private readonly AssetAtlas assets = new();
+    private readonly System.Windows.Forms.Timer animationTimer;
 
     private static readonly string[] MenuLabels =
     [
@@ -219,14 +226,96 @@ internal sealed class BattleOverlayControl : Control
         "FLEE"
     ];
 
+    private TurnBasedBattle? animationBattle;
+    private Dictionary<Monster, int> animationDamage = new();
+    private int animationPlayerDamage;
+    private BattleAction animationAction;
+    private int animationFrame;
+    private int animationEnemyIndex;
+    private bool animationPlayerPhase;
+
+    internal bool IsAnimating => animationTimer.Enabled;
+
     public BattleOverlayControl(Game game)
     {
         this.game = game;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
+        animationTimer = new System.Windows.Forms.Timer { Interval = 40 };
+        animationTimer.Tick += (_, _) => AdvanceAnimation();
     }
 
     protected override bool ShowFocusCues => false;
+
+    internal void PlayActionAnimation(BattleAction action, TurnBasedBattle battle, Dictionary<Monster, int> enemyDamage, int playerDamage)
+    {
+        animationBattle = battle;
+        animationDamage = enemyDamage;
+        animationPlayerDamage = playerDamage;
+        animationAction = action;
+        animationFrame = 0;
+        animationEnemyIndex = 0;
+        animationPlayerPhase = action is BattleAction.Attack or BattleAction.PowerStrike;
+
+        if (action is BattleAction.Potion or BattleAction.Defend or BattleAction.Flee ||
+            (!animationPlayerPhase && playerDamage == 0))
+        {
+            animationTimer.Start();
+            animationFrame = 18;
+        }
+        else
+        {
+            animationTimer.Start();
+        }
+        Invalidate();
+    }
+
+    private void AdvanceAnimation()
+    {
+        animationFrame++;
+
+        if (animationPlayerPhase && animationFrame >= 22)
+        {
+            animationPlayerPhase = false;
+            animationFrame = 0;
+            animationEnemyIndex = 0;
+        }
+
+        if (!animationPlayerPhase && animationFrame >= 18)
+        {
+            animationFrame = 0;
+            animationEnemyIndex++;
+        }
+
+        int livingAttackers = animationBattle?.Enemies.Count(enemy => animationDamage.TryGetValue(enemy, out int damage) && damage > 0) ?? 0;
+        if (animationFrame >= 18 && animationEnemyIndex >= Math.Max(1, livingAttackers))
+        {
+            animationTimer.Stop();
+            TurnBasedBattle? finishedBattle = animationBattle;
+            animationBattle = null;
+            if (finishedBattle?.Finished == true)
+                game.GetType();
+            game.GetType();
+            CompleteBattleAnimation(finishedBattle);
+        }
+
+        Invalidate();
+    }
+
+    private void CompleteBattleAnimation(TurnBasedBattle? battle)
+    {
+        if (battle == null || game.CurrentBattle != battle)
+            return;
+
+        if (battle.Finished)
+        {
+            typeof(Game).GetMethod("FinishBattle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.Invoke(game, [battle]);
+        }
+        else
+        {
+            game.SetBattleMessageForAnimation(battle.Message);
+        }
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -236,73 +325,87 @@ internal sealed class BattleOverlayControl : Control
             return;
 
         Graphics g = e.Graphics;
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-        g.Clear(Color.Transparent);
+        g.SmoothingMode = SmoothingMode.None;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.Clear(Color.FromArgb(3, 8, 17));
 
-        using SolidBrush shade = new(Color.FromArgb(205, 0, 0, 0));
-        g.FillRectangle(shade, ClientRectangle);
-
-        Rectangle arena = new(140, 90, 1640, 590);
-        using SolidBrush arenaBrush = new(Color.FromArgb(235, 10, 11, 15));
-        using Pen arenaBorder = new(Color.FromArgb(150, 112, 91, 47), 3);
-        g.FillRectangle(arenaBrush, arena);
-        g.DrawRectangle(arenaBorder, arena);
-
+        DrawBattleBackdrop(g);
         DrawEnemies(g, battle);
         DrawPlayer(g, battle);
         DrawStatus(g, battle);
         DrawCommandWindow(g);
+        DrawAnimation(g, battle);
+    }
+
+    private static void DrawBattleBackdrop(Graphics g)
+    {
+        using SolidBrush sky = new(Color.FromArgb(12, 27, 55));
+        using SolidBrush ground = new(Color.FromArgb(8, 14, 27));
+        g.FillRectangle(sky, ClientRectangle);
+        g.FillRectangle(ground, new Rectangle(0, 515, 1920, 565));
+
+        using Pen horizon = new(Color.FromArgb(55, 77, 112), 2);
+        g.DrawLine(horizon, 0, 515, 1920, 515);
+
+        for (int i = 0; i < 18; i++)
+        {
+            int x = 30 + i * 113;
+            int y = 80 + (i % 4) * 62;
+            using SolidBrush star = new(Color.FromArgb(90, 142, 157, 185));
+            g.FillRectangle(star, x, y, 2, 2);
+        }
+
+        using Pen floor = new(Color.FromArgb(28, 45, 69), 1);
+        for (int x = 0; x < 1920; x += 80)
+            g.DrawLine(floor, x, 515, x - 160, 760);
     }
 
     private void DrawEnemies(Graphics g, TurnBasedBattle battle)
     {
         using Font name = new("Segoe UI", 11, FontStyle.Bold);
         using Font details = new("Segoe UI", 8.5f, FontStyle.Bold);
-        using SolidBrush text = new(Color.Gainsboro);
-        using SolidBrush muted = new(Color.FromArgb(165, 175, 185));
-        using SolidBrush targetBrush = new(Color.FromArgb(70, 112, 91, 47));
+        using SolidBrush text = new(Color.White);
+        using SolidBrush muted = new(Color.FromArgb(170, 187, 210));
+        using SolidBrush target = new(Color.FromArgb(75, 40, 83, 125));
 
         for (int i = 0; i < battle.Enemies.Count; i++)
         {
             Monster enemy = battle.Enemies[i];
             int column = i % 3;
             int row = i / 3;
-            int x = 205 + column * 285;
-            int y = 145 + row * 235;
-            Rectangle card = new(x, y, 255, 215);
+            int x = 130 + column * 315;
+            int y = row == 0 ? 75 : 285;
+            Rectangle card = new(x, y, 290, 195);
 
             if (i == battle.TargetIndex && enemy.Alive)
-                g.FillRectangle(targetBrush, card);
+                g.FillRectangle(target, card);
 
-            Rectangle sprite = new(x + 55, y + 8, 145, 145);
+            Rectangle sprite = new(x + 65, y + 4, 160, 160);
             assets.DrawMonster(g, sprite, enemy);
-            g.DrawString($"{i + 1}. {enemy.Name.ToUpperInvariant()}", name, enemy.Alive ? text : muted, x + 12, y + 155);
-            g.DrawString($"LV {enemy.Level}    HP {Math.Max(0, enemy.Hp)}/{enemy.MaxHp}", details, muted, x + 12, y + 177);
-            DrawBar(g, new Rectangle(x + 12, y + 194, 225, 10), enemy.Hp, Math.Max(1, enemy.MaxHp));
+            g.DrawString($"{i + 1}. {enemy.Name.ToUpperInvariant()}", name, enemy.Alive ? text : muted, x + 12, y + 150);
+            g.DrawString($"LV {enemy.Level}   HP {Math.Max(0, enemy.Hp)}/{enemy.MaxHp}", details, muted, x + 12, y + 171);
+            DrawBar(g, new Rectangle(x + 12, y + 186, 265, 7), enemy.Hp, Math.Max(1, enemy.MaxHp));
         }
     }
 
     private void DrawPlayer(Graphics g, TurnBasedBattle battle)
     {
-        Rectangle panel = new(1175, 120, 470, 475);
-        using SolidBrush panelBrush = new(Color.FromArgb(105, 0, 0, 0));
-        using Pen border = new(Color.FromArgb(100, 112, 91, 47), 2);
-        g.FillRectangle(panelBrush, panel);
-        g.DrawRectangle(border, panel);
+        Rectangle panel = new(1300, 80, 470, 440);
+        DrawWindow(g, panel, Color.FromArgb(18, 31, 55));
 
-        Rectangle sprite = new(1320, 160, 180, 180);
+        Rectangle sprite = new(1435, 110, 180, 180);
         assets.DrawPlayer(g, sprite, Direction.Left, battle.Player.Alive);
 
         using Font name = new("Segoe UI", 16, FontStyle.Bold);
         using Font details = new("Segoe UI", 11, FontStyle.Bold);
-        using SolidBrush text = new(Color.Gainsboro);
-        using SolidBrush muted = new(Color.FromArgb(170, 175, 185));
-        g.DrawString(battle.Player.Name.ToUpperInvariant(), name, text, 1250, 365);
-        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", details, muted, 1250, 393);
-        DrawBar(g, new Rectangle(1250, 423, 320, 16), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
-        g.DrawString("LEFT / RIGHT: TARGET", details, muted, 1250, 465);
-        g.DrawString("Enemies act in turn order after your action.", details, muted, 1250, 492);
+        using SolidBrush text = new(Color.White);
+        using SolidBrush muted = new(Color.FromArgb(178, 195, 220));
+        g.DrawString(battle.Player.Name.ToUpperInvariant(), name, text, 1370, 315);
+        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", details, muted, 1370, 347);
+        DrawBar(g, new Rectangle(1370, 378, 320, 14), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
+        g.DrawString($"MP {battle.Player.Mana}/{battle.Player.MaxMana}", details, muted, 1370, 408);
+        g.DrawString("TARGET", details, muted, 1370, 450);
+        g.DrawString(battle.CurrentEnemy.Name.ToUpperInvariant(), details, UiTheme.GoldBrush, 1450, 450);
     }
 
     private static void DrawStatus(Graphics g, TurnBasedBattle battle)
@@ -310,55 +413,128 @@ internal sealed class BattleOverlayControl : Control
         using Font phase = new("Segoe UI", 11, FontStyle.Bold);
         using Font message = new("Segoe UI", 9.5f, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
-        using SolidBrush text = new(UiTheme.Text);
+        using SolidBrush text = new(Color.White);
         string heading = battle.Phase == BattlePhase.PlayerTurn ? "YOUR TURN" : "ENEMY TURN";
-        g.DrawString(heading, phase, gold, 800, 105);
-        g.DrawString(battle.Message, message, text, 800, 132);
+        g.DrawString(heading, phase, gold, 785, 535);
+        g.DrawString(battle.Message, message, text, 785, 560);
     }
 
     private void DrawCommandWindow(Graphics g)
     {
-        Rectangle menu = new(500, 700, 920, 250);
-        using SolidBrush panel = new(Color.FromArgb(245, 8, 9, 13));
-        using Pen border = new(Color.FromArgb(175, 112, 91, 47), 3);
+        Rectangle menu = new(180, 700, 1120, 270);
+        DrawWindow(g, menu, Color.FromArgb(13, 24, 45));
+
         using Font heading = new("Segoe UI", 11, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
-        g.FillRectangle(panel, menu);
-        g.DrawRectangle(border, menu);
-        g.DrawString("COMMAND", heading, gold, menu.X + 24, menu.Y + 18);
+        g.DrawString("COMMAND", heading, gold, menu.X + 28, menu.Y + 20);
 
         for (int i = 0; i < MenuLabels.Length; i++)
         {
-            int x = menu.X + 34 + (i % 3) * 285;
-            int y = menu.Y + 62 + (i / 3) * 72;
+            int x = menu.X + 38 + (i % 2) * 520;
+            int y = menu.Y + 68 + (i / 2) * 62;
             bool selected = i == game.BattleMenuIndex;
             if (selected)
             {
-                using SolidBrush highlight = new(Color.FromArgb(100, 112, 91, 47));
-                g.FillRectangle(highlight, x - 12, y - 7, 245, 42);
+                using SolidBrush highlight = new(Color.FromArgb(95, 43, 72, 120));
+                g.FillRectangle(highlight, x - 15, y - 7, 445, 40);
+                using Pen cursor = new(Color.FromArgb(235, 221, 190), 3);
+                g.DrawLine(cursor, x - 10, y + 11, x - 2, y + 3);
+                g.DrawLine(cursor, x - 10, y + 11, x - 2, y + 19);
             }
 
             using SolidBrush number = new(UiTheme.Gold);
-            using SolidBrush label = new(selected ? Color.White : Color.FromArgb(185, 188, 198));
+            using SolidBrush label = new(selected ? Color.White : Color.FromArgb(188, 202, 225));
             g.DrawString($"{i + 1}", heading, number, x, y);
-            g.DrawString(MenuLabels[i], heading, label, x + 28, y);
+            g.DrawString(MenuLabels[i], heading, label, x + 30, y);
         }
 
         using Font hint = new("Segoe UI", 8.5f, FontStyle.Bold);
-        using SolidBrush muted = new(UiTheme.Muted);
-        g.DrawString("1-5 SELECT    ↑/↓ COMMAND    ←/→ TARGET    ENTER CONFIRM", hint, muted, menu.X + 24, menu.Bottom - 30);
+        using SolidBrush muted = new(Color.FromArgb(145, 165, 195));
+        g.DrawString("1-5 COMMAND    ↑/↓ SELECT    ←/→ TARGET    ENTER CONFIRM", hint, muted, menu.X + 28, menu.Bottom - 30);
+    }
+
+    private void DrawAnimation(Graphics g, TurnBasedBattle battle)
+    {
+        if (!IsAnimating)
+            return;
+
+        if (animationPlayerPhase && animationAction is BattleAction.Attack or BattleAction.PowerStrike)
+        {
+            Monster target = battle.CurrentEnemy;
+            Point playerCenter = new(1525, 200);
+            int index = battle.TargetIndex;
+            int column = index % 3;
+            int row = index / 3;
+            Point enemyCenter = new(275 + column * 315, (row == 0 ? 150 : 360));
+            float t = Math.Clamp(animationFrame / 22f, 0f, 1f);
+            Point p = new((int)(playerCenter.X + (enemyCenter.X - playerCenter.X) * t), (int)(playerCenter.Y + (enemyCenter.Y - playerCenter.Y) * t));
+
+            using Pen streak = new(Color.FromArgb(230, 230, 235, 255), 8);
+            g.DrawLine(streak, playerCenter, p);
+            using SolidBrush impact = new(Color.FromArgb(210, 245, 245, 255));
+            int radius = 8 + (animationFrame % 5) * 3;
+            g.FillEllipse(impact, p.X - radius, p.Y - radius, radius * 2, radius * 2);
+
+            int damage = animationDamage.GetValueOrDefault(target);
+            if (damage > 0)
+                DrawDamageNumber(g, damage, enemyCenter, animationFrame);
+        }
+        else
+        {
+            List<Monster> attackers = battle.Enemies.Where(enemy => animationDamage.GetValueOrDefault(enemy) > 0).ToList();
+            if (animationEnemyIndex < attackers.Count)
+            {
+                Monster attacker = attackers[animationEnemyIndex];
+                int index = battle.Enemies.IndexOf(attacker);
+                int column = index % 3;
+                int row = index / 3;
+                Point enemyCenter = new(275 + column * 315, row == 0 ? 150 : 360);
+                Point playerCenter = new(1525, 200);
+                float t = Math.Clamp(animationFrame / 18f, 0f, 1f);
+                Point p = new((int)(enemyCenter.X + (playerCenter.X - enemyCenter.X) * t), (int)(enemyCenter.Y + (playerCenter.Y - enemyCenter.Y) * t));
+
+                using Pen streak = new(Color.FromArgb(230, 220, 235, 255), 7);
+                g.DrawLine(streak, enemyCenter, p);
+                using SolidBrush impact = new(Color.FromArgb(215, 255, 235, 235));
+                int radius = 7 + (animationFrame % 4) * 3;
+                g.FillEllipse(impact, p.X - radius, p.Y - radius, radius * 2, radius * 2);
+                DrawDamageNumber(g, animationDamage[attacker], playerCenter, animationFrame);
+            }
+        }
+    }
+
+    private static void DrawDamageNumber(Graphics g, int damage, Point center, int frame)
+    {
+        using Font font = new("Segoe UI", 18, FontStyle.Bold);
+        using SolidBrush shadow = new(Color.Black);
+        using SolidBrush text = new(Color.White);
+        float y = center.Y - 25 - frame * 1.5f;
+        string value = $"-{damage}";
+        g.DrawString(value, font, shadow, center.X - 18, y + 2);
+        g.DrawString(value, font, text, center.X - 20, y);
+    }
+
+    private static void DrawWindow(Graphics g, Rectangle rect, Color fill)
+    {
+        using SolidBrush panel = new(fill);
+        using Pen outer = new(Color.FromArgb(230, 170, 190, 220), 3);
+        using Pen inner = new(Color.FromArgb(105, 70, 95, 130), 1);
+        g.FillRectangle(panel, rect);
+        g.DrawRectangle(outer, rect);
+        Rectangle innerRect = new(rect.X + 7, rect.Y + 7, rect.Width - 14, rect.Height - 14);
+        g.DrawRectangle(inner, innerRect);
     }
 
     private static void DrawBar(Graphics g, Rectangle rect, int value, int maximum)
     {
-        using SolidBrush background = new(Color.FromArgb(50, 55, 62));
-        using Pen border = new(Color.FromArgb(130, 100, 104, 112));
+        using SolidBrush background = new(Color.FromArgb(35, 47, 68));
+        using Pen border = new(Color.FromArgb(150, 110, 130, 155));
         g.FillRectangle(background, rect);
         g.DrawRectangle(border, rect);
         int width = Math.Clamp(rect.Width * Math.Max(0, value) / Math.Max(1, maximum), 0, rect.Width);
         if (width > 0)
         {
-            using SolidBrush fill = new(Color.FromArgb(190, 145, 50, 45));
+            using SolidBrush fill = new(Color.FromArgb(205, 70, 150, 82));
             g.FillRectangle(fill, rect.X + 1, rect.Y + 1, Math.Max(1, width - 1), rect.Height - 2);
         }
     }
