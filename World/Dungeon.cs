@@ -6,9 +6,9 @@ namespace Moria.World;
 public sealed class Dungeon
 {
     public const int StartingWidth = 160;
-    public const int StartingHeight = 44;
+    public const int StartingHeight = 160;
     public const int MaximumWidth = 360;
-    public const int MaximumHeight = 54;
+    public const int MaximumHeight = 360;
     public const int MaximumDepth = 50;
 
     private Tile[,] tiles = null!;
@@ -42,13 +42,14 @@ public sealed class Dungeon
         Monsters.Clear();
         Boss = null;
 
-        int roomTarget = Math.Min(50, 18 + level / 2);
-        int attempts = roomTarget * 8;
+        int area = Width * Height;
+        int roomTarget = Math.Min(180, Math.Max(28, area / 700));
+        int attempts = roomTarget * 10;
 
         for (int i = 0; i < attempts && rooms.Count < roomTarget; i++)
         {
-            int maxRoomWidth = Math.Min(18, Math.Max(8, Width / 6));
-            int maxRoomHeight = Math.Min(10, Math.Max(6, Height / 4));
+            int maxRoomWidth = Math.Min(22, Math.Max(10, Width / 7));
+            int maxRoomHeight = Math.Min(16, Math.Max(8, Height / 7));
             int w = random.Next(5, maxRoomWidth + 1);
             int h = random.Next(4, maxRoomHeight + 1);
             int x = random.Next(2, Width - w - 2);
@@ -76,7 +77,7 @@ public sealed class Dungeon
         this[UpStairs].Type = TileType.StairsUp;
         this[DownStairs].Type = TileType.StairsDown;
 
-        int monsterCount = Math.Min(12 + level * 2, 50);
+        int monsterCount = Math.Min(40 + level * 4, 180);
         for (int i = 0; i < monsterCount; i++) SpawnMonster(level);
 
         SpawnBoss(level);
@@ -124,7 +125,7 @@ public sealed class Dungeon
 
     private void AddLoopConnections(int level)
     {
-        int loops = Math.Min(24, 5 + level / 2);
+        int loops = Math.Min(80, 14 + level);
         for (int i = 0; i < loops; i++)
         {
             Room a = rooms[random.Next(rooms.Count)];
@@ -135,13 +136,13 @@ public sealed class Dungeon
 
     private void CarveWindingTunnels(int level)
     {
-        int tunnelCount = Math.Min(30, 8 + level / 2);
+        int tunnelCount = Math.Min(100, 20 + level * 2);
         for (int i = 0; i < tunnelCount; i++)
         {
             Room room = rooms[random.Next(rooms.Count)];
             Direction direction = (Direction)random.Next(1, 5);
             Position p = StepFromRoom(room, direction);
-            int length = random.Next(8, 18 + level / 2);
+            int length = random.Next(10, 28 + level / 2);
             int stepsSinceTurn = 0;
 
             for (int step = 0; step < length; step++)
@@ -151,7 +152,7 @@ public sealed class Dungeon
                 p = p.Step(direction);
                 stepsSinceTurn++;
 
-                if (stepsSinceTurn >= 2 && random.Next(100) < 38)
+                if (stepsSinceTurn >= 2 && random.Next(100) < 42)
                 {
                     direction = Turn(direction, random.Next(2) == 0);
                     stepsSinceTurn = 0;
