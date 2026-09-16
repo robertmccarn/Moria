@@ -1,3 +1,4 @@
+using System.Drawing;
 using Moria.Core;
 
 namespace Moria.Rendering;
