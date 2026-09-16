@@ -18,8 +18,8 @@ public sealed class TurnBasedBattle
     public Monster Enemy => CurrentEnemy;
     public Monster CurrentEnemy => Enemies[Math.Clamp(targetIndex, 0, Enemies.Count - 1)];
     public int TargetIndex => targetIndex;
-    public BattlePhase Phase { get; private set; } = BattlePhase.PlayerTurn;
-    public string Message { get; private set; } = "Choose an action.";
+    public BattlePhase Phase { get; private set; } = BattlePhase.EnemyTurn;
+    public string Message { get; private set; } = "The enemies advance.";
     public bool Finished => Phase is BattlePhase.Victory or BattlePhase.Defeat or BattlePhase.Fled;
     public bool AllEnemiesDefeated => Enemies.All(e => !e.Alive);
 
@@ -30,6 +30,14 @@ public sealed class TurnBasedBattle
         this.random = random;
         Enemies = enemies.Where(e => e.Alive).Distinct().ToList();
         if (Enemies.Count == 0) throw new ArgumentException("A battle requires at least one living enemy.", nameof(enemies));
+    }
+
+    public void StartEnemyTurn()
+    {
+        if (Finished || Phase != BattlePhase.EnemyTurn)
+            return;
+
+        EnemyTurn();
     }
 
     public void CycleTarget(int direction)
@@ -129,7 +137,7 @@ public sealed class TurnBasedBattle
         }
         defending = false;
         Phase = BattlePhase.PlayerTurn;
-        Message = attacks.Count == 0 ? "The enemies hesitate." : string.Join(". ", attacks) + ". Your turn.";
+        Message = attacks.Count == 0 ? "The enemies hesitate. Your turn." : string.Join(". ", attacks) + ". Your turn.";
         EnsureLivingTarget();
     }
 
