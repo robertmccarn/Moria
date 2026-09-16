@@ -344,7 +344,9 @@ public sealed partial class Game
         g.DrawString("Loot is collected automatically.", small, muted, controlX, right.Bottom - 20);
         g.DrawString("Better gear equips itself.", small, muted, controlX + 174, right.Bottom - 20);
 
-        g.DrawString("1920 × 1080  •  TURN-BASED  •  FOG OF WAR", new Font("Segoe UI", 8.5f, FontStyle.Bold), Color.FromArgb(105, 109, 120), 16, ClientSize.Height - 14);
+        using SolidBrush footerBrush = new(Color.FromArgb(105, 109, 120));
+        using Font footerFont = new("Segoe UI", 8.5f, FontStyle.Bold);
+        g.DrawString("1920 × 1080  •  TURN-BASED  •  FOG OF WAR", footerFont, footerBrush, 16, ClientSize.Height - 14);
     }
 
     private static void DrawHudPanel(Graphics g, Rectangle rect, string title, SolidBrush panel, Pen border, Pen brightBorder)
