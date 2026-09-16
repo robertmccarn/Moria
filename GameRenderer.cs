@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using Moria.Art;
 using Moria.Core;
 using Moria.Entities;
 using Moria.Rendering;
@@ -10,6 +11,7 @@ namespace Moria;
 
 public sealed partial class Game
 {
+    private readonly AssetAtlas assets = new();
     private readonly VirtualCanvas virtualCanvas = new();
     private readonly Camera2D camera = new(53, 21, 12);
     private readonly UiRenderer uiRenderer = new();
@@ -63,7 +65,7 @@ public sealed partial class Game
                 continue;
             }
 
-            DrawTileBlock(g, dungeon[position], rect, x, y);
+            assets.DrawTile(g, dungeon[position].Type, rect, x, y);
             if (!visibility.IsVisible(position))
             {
                 using SolidBrush fog = new(Color.FromArgb(175, 4, 5, 8));
@@ -79,45 +81,11 @@ public sealed partial class Game
         if (visibility.IsVisible(player.Position))
         {
             Rectangle playerTile = camera.TileRectangle(player.Position);
-            DrawPlayerBlock(g, playerTile);
+            DrawPlayerEnergy(g, playerTile);
+            assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 15), playerFacing, player.Alive);
         }
 
         if (runOver || victory) DrawDeathOverlay(g);
-    }
-
-    private static void DrawTileBlock(Graphics g, Tile tile, Rectangle rect, int x, int y)
-    {
-        Color fill = tile.Type switch
-        {
-            TileType.Floor => Color.FromArgb(112, 112, 112),
-            TileType.Wall => Color.FromArgb(34, 34, 34),
-            TileType.Door => Color.FromArgb(82, 82, 82),
-            TileType.StairsUp => Color.FromArgb(145, 145, 145),
-            TileType.StairsDown => Color.FromArgb(170, 170, 170),
-            TileType.Trap => Color.FromArgb(72, 72, 72),
-            _ => Color.FromArgb(20, 20, 20)
-        };
-
-        using SolidBrush brush = new(fill);
-        g.FillRectangle(brush, rect);
-
-        if (tile.Type == TileType.Floor)
-        {
-            using Pen seam = new(Color.FromArgb(96, 96, 96), 1);
-            if ((x + y) % 2 == 0)
-                g.DrawLine(seam, rect.Left, rect.Bottom - 1, rect.Right - 1, rect.Bottom - 1);
-        }
-        else if (tile.Type == TileType.Wall)
-        {
-            using Pen edge = new(Color.FromArgb(48, 48, 48), 1);
-            g.DrawRectangle(edge, rect.Left, rect.Top, rect.Width - 1, rect.Height - 1);
-        }
-        else if (tile.Type == TileType.StairsUp || tile.Type == TileType.StairsDown)
-        {
-            using Pen mark = new(Color.FromArgb(55, 55, 55), 1);
-            int inset = 3;
-            g.DrawRectangle(mark, rect.Left + inset, rect.Top + inset, rect.Width - inset * 2 - 1, rect.Height - inset * 2 - 1);
-        }
     }
 
     private void DrawEntities(Graphics g, Position position, Rectangle rect)
@@ -126,32 +94,17 @@ public sealed partial class Game
         Monster? monster = dungeon.MonsterAt(position);
         if (monster != null)
         {
-            int inset = monster.IsBoss ? 1 : 3;
-            using SolidBrush block = new(monster.IsBoss ? Color.FromArgb(185, 185, 185) : Color.FromArgb(150, 150, 150));
-            g.FillRectangle(block, rect.X + inset, rect.Y + inset, rect.Width - inset * 2, rect.Height - inset * 2);
+            int size = monster.IsBoss ? 28 : 15;
+            assets.DrawMonster(g, CenteredSpriteRect(rect, size), monster);
+            DrawMonsterMarker(g, rect, monster);
             return;
         }
 
         Tile tile = dungeon[position];
         if (tile.GearLoot.Count > 0)
-        {
-            using SolidBrush loot = new(Color.FromArgb(195, 195, 195));
-            g.FillRectangle(loot, rect.X + 4, rect.Y + 4, rect.Width - 8, rect.Height - 8);
-        }
+            assets.DrawGear(g, CenteredSpriteRect(rect, 14), tile.GearLoot[^1]);
         else if (tile.HasItem)
-        {
-            using SolidBrush loot = new(Color.FromArgb(175, 175, 175));
-            g.FillRectangle(loot, rect.X + 4, rect.Y + 4, rect.Width - 8, rect.Height - 8);
-        }
-    }
-
-    private static void DrawPlayerBlock(Graphics g, Rectangle tile)
-    {
-        int inset = 2;
-        using SolidBrush player = new(Color.FromArgb(225, 225, 225));
-        g.FillRectangle(player, tile.X + inset, tile.Y + inset, tile.Width - inset * 2, tile.Height - inset * 2);
-        using Pen outline = new(Color.FromArgb(245, 245, 245), 1);
-        g.DrawRectangle(outline, tile.X + inset, tile.Y + inset, tile.Width - inset * 2 - 1, tile.Height - inset * 2 - 1);
+            assets.DrawPotion(g, CenteredSpriteRect(rect, 14));
     }
 
     private static Color DepthBackgroundColor(int level)
@@ -166,10 +119,26 @@ public sealed partial class Game
     private static void DrawDepthTint(Graphics g, Rectangle rect, int level)
     {
         double progress = Math.Clamp((level - 1) / (double)(Dungeon.MaximumDepth - 1), 0.0, 1.0);
-        int alpha = (int)Math.Round(progress * 35);
+        int alpha = (int)Math.Round(progress * 70);
         if (alpha <= 0) return;
-        using SolidBrush tint = new(Color.FromArgb(alpha, 90, 90, 90));
+        using SolidBrush tint = new(Color.FromArgb(alpha, 145, 12, 12));
         g.FillRectangle(tint, rect);
+    }
+
+    private static Rectangle CenteredSpriteRect(Rectangle tile, int size) =>
+        new(tile.X + (tile.Width - size) / 2, tile.Y + (tile.Height - size) / 2, size, size);
+
+    private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
+    {
+        int size = monster.IsBoss ? 4 : 3;
+        using SolidBrush marker = new(Color.FromArgb(monster.IsBoss ? 235 : 205, 190, 45, 40));
+        g.FillEllipse(marker, tile.Right - size - 1, tile.Y + 1, size, size);
+    }
+
+    private static void DrawPlayerEnergy(Graphics g, Rectangle tile)
+    {
+        using SolidBrush glow = new(Color.FromArgb(80, 75, 165, 205));
+        g.FillEllipse(glow, tile.X + 1, tile.Bottom - 5, tile.Width - 2, 4);
     }
 
     private void DrawDeathOverlay(Graphics g)
