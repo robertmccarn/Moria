@@ -146,6 +146,17 @@ public sealed partial class Game
         battleOverlay.Invalidate();
     }
 
+    internal void CompleteBattleAnimation(TurnBasedBattle battle)
+    {
+        if (CurrentBattle != battle)
+            return;
+
+        if (battle.Finished)
+            FinishBattle(battle);
+        else
+            battleOverlay?.Invalidate();
+    }
+
     private void FinishBattle(TurnBasedBattle battle)
     {
         if (battle.Phase == BattlePhase.Victory)
@@ -256,17 +267,7 @@ internal sealed class BattleOverlayControl : Control
         animationFrame = 0;
         animationEnemyIndex = 0;
         animationPlayerPhase = action is BattleAction.Attack or BattleAction.PowerStrike;
-
-        if (action is BattleAction.Potion or BattleAction.Defend or BattleAction.Flee ||
-            (!animationPlayerPhase && playerDamage == 0))
-        {
-            animationTimer.Start();
-            animationFrame = 18;
-        }
-        else
-        {
-            animationTimer.Start();
-        }
+        animationTimer.Start();
         Invalidate();
     }
 
@@ -281,40 +282,26 @@ internal sealed class BattleOverlayControl : Control
             animationEnemyIndex = 0;
         }
 
+        List<Monster> attackers = animationBattle?.Enemies
+            .Where(enemy => animationDamage.GetValueOrDefault(enemy) > 0)
+            .ToList() ?? new List<Monster>();
+
         if (!animationPlayerPhase && animationFrame >= 18)
         {
             animationFrame = 0;
             animationEnemyIndex++;
         }
 
-        int livingAttackers = animationBattle?.Enemies.Count(enemy => animationDamage.TryGetValue(enemy, out int damage) && damage > 0) ?? 0;
-        if (animationFrame >= 18 && animationEnemyIndex >= Math.Max(1, livingAttackers))
+        if (!animationPlayerPhase && animationEnemyIndex >= Math.Max(1, attackers.Count))
         {
             animationTimer.Stop();
-            TurnBasedBattle? finishedBattle = animationBattle;
+            TurnBasedBattle? completedBattle = animationBattle;
             animationBattle = null;
-            if (finishedBattle?.Finished == true)
-                game.GetType();
-            game.GetType();
-            CompleteBattleAnimation(finishedBattle);
+            if (completedBattle != null)
+                game.CompleteBattleAnimation(completedBattle);
         }
 
         Invalidate();
-    }
-
-    private void CompleteBattleAnimation(TurnBasedBattle? battle)
-    {
-        if (battle == null || game.CurrentBattle != battle)
-            return;
-
-        if (battle.Finished)
-        {
-            typeof(Game).GetMethod("FinishBattle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.Invoke(game, [battle]);
-        }
-        else
-        {
-            game.SetBattleMessageForAnimation(battle.Message);
-        }
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -405,7 +392,8 @@ internal sealed class BattleOverlayControl : Control
         DrawBar(g, new Rectangle(1370, 378, 320, 14), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
         g.DrawString($"MP {battle.Player.Mana}/{battle.Player.MaxMana}", details, muted, 1370, 408);
         g.DrawString("TARGET", details, muted, 1370, 450);
-        g.DrawString(battle.CurrentEnemy.Name.ToUpperInvariant(), details, UiTheme.GoldBrush, 1450, 450);
+        using SolidBrush targetText = new(UiTheme.Gold);
+        g.DrawString(battle.CurrentEnemy.Name.ToUpperInvariant(), details, targetText, 1450, 450);
     }
 
     private static void DrawStatus(Graphics g, TurnBasedBattle battle)
@@ -463,9 +451,7 @@ internal sealed class BattleOverlayControl : Control
             Monster target = battle.CurrentEnemy;
             Point playerCenter = new(1525, 200);
             int index = battle.TargetIndex;
-            int column = index % 3;
-            int row = index / 3;
-            Point enemyCenter = new(275 + column * 315, (row == 0 ? 150 : 360));
+            Point enemyCenter = EnemyCenter(index);
             float t = Math.Clamp(animationFrame / 22f, 0f, 1f);
             Point p = new((int)(playerCenter.X + (enemyCenter.X - playerCenter.X) * t), (int)(playerCenter.Y + (enemyCenter.Y - playerCenter.Y) * t));
 
@@ -485,10 +471,14 @@ internal sealed class BattleOverlayControl : Control
             if (animationEnemyIndex < attackers.Count)
             {
                 Monster attacker = attackers[animationEnemyIndex];
-                int index = battle.Enemies.IndexOf(attacker);
-                int column = index % 3;
-                int row = index / 3;
-                Point enemyCenter = new(275 + column * 315, row == 0 ? 150 : 360);
+                int index = 0;
+                for (; index < battle.Enemies.Count; index++)
+                {
+                    if (ReferenceEquals(battle.Enemies[index], attacker))
+                        break;
+                }
+
+                Point enemyCenter = EnemyCenter(index);
                 Point playerCenter = new(1525, 200);
                 float t = Math.Clamp(animationFrame / 18f, 0f, 1f);
                 Point p = new((int)(enemyCenter.X + (playerCenter.X - enemyCenter.X) * t), (int)(enemyCenter.Y + (playerCenter.Y - enemyCenter.Y) * t));
@@ -500,7 +490,18 @@ internal sealed class BattleOverlayControl : Control
                 g.FillEllipse(impact, p.X - radius, p.Y - radius, radius * 2, radius * 2);
                 DrawDamageNumber(g, animationDamage[attacker], playerCenter, animationFrame);
             }
+            else if (animationPlayerDamage > 0)
+            {
+                DrawDamageNumber(g, animationPlayerDamage, new Point(1525, 200), animationFrame);
+            }
         }
+    }
+
+    private static Point EnemyCenter(int index)
+    {
+        int column = index % 3;
+        int row = index / 3;
+        return new Point(275 + column * 315, row == 0 ? 150 : 360);
     }
 
     private static void DrawDamageNumber(Graphics g, int damage, Point center, int frame)
