@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Moria.Core;
 using Moria.Entities;
+using Moria.Input;
 using Moria.Items;
 using Moria.World;
 using WinFormsTimer = System.Windows.Forms.Timer;
@@ -10,21 +11,24 @@ namespace Moria;
 
 public sealed partial class Game : Form
 {
-    private const int TileSize = 32;
-    private const int MapWidth = 1920;
-    private const int MapHeight = 880;
-    private const int StatusHeight = 200;
+    private const int TileSize = 16;
+    private const int MapWidth = 640;
+    private const int MapHeight = 256;
+    private const int StatusHeight = 104;
     private const string MetaFile = "moria.meta";
 
     private readonly Random random = new();
     private readonly WinFormsTimer redrawTimer;
     private readonly List<string> chatLog = new();
+    private readonly FieldOfView fieldOfView = new();
     private Dungeon dungeon = null!;
     private Player player = null!;
+    private VisibilityMap visibility = null!;
     private string message = "Welcome to Moria.";
     private bool running = true;
     private bool started;
     private bool runOver;
+    private bool victory;
     private int lastRunReward;
 
     public int LastRunReward => lastRunReward;
@@ -33,8 +37,8 @@ public sealed partial class Game : Form
     public Game()
     {
         Text = "Moria — Roguelite";
-        ClientSize = new Size(MapWidth, MapHeight + StatusHeight);
-        BackColor = Color.FromArgb(9, 9, 12);
+        ClientSize = new Size(1920, 1080);
+        BackColor = Color.Black;
         ForeColor = Color.Gainsboro;
         DoubleBuffered = true;
         KeyPreview = true;
@@ -42,7 +46,13 @@ public sealed partial class Game : Form
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         KeyDown += OnKeyDown;
-        FormClosed += (_, _) => running = false;
+        FormClosed += (_, _) =>
+        {
+            running = false;
+            redrawTimer.Stop();
+            redrawTimer.Dispose();
+            assets.Dispose();
+        };
 
         redrawTimer = new WinFormsTimer { Interval = 50 };
         redrawTimer.Tick += (_, _) => Invalidate();
@@ -94,62 +104,56 @@ public sealed partial class Game : Form
         player.Gold = 100;
         player.Experience = 0;
         dungeon.Generate(player.DungeonLevel);
+        visibility = new VisibilityMap(dungeon.Width, dungeon.Height);
         player.Position = dungeon.UpStairs;
-        dungeon.RevealAround(player.Position, 8);
+        RecalculateVisibility(8);
         runOver = false;
+        victory = false;
         chatLog.Clear();
         SetMessage($"Run {player.RunsCompleted + 1} begins. Descend into Moria and survive.");
+    }
+
+    private void RecalculateVisibility(int radius)
+    {
+        fieldOfView.Recalculate(dungeon, player.Position, radius, visibility);
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (!started || !running) return;
+        GameAction action = InputManager.Translate(e.KeyCode);
 
-        if (runOver)
+        if (runOver || victory)
         {
-            if (e.KeyCode is Keys.Enter or Keys.Space or Keys.N) StartFreshRun();
-            else if (e.KeyCode is Keys.Escape) { running = false; Close(); }
+            if (action == GameAction.NewRun) StartFreshRun();
+            else if (action == GameAction.Quit) { running = false; Close(); }
             return;
         }
 
         if (!player.Alive) { EndRun(); return; }
 
-        Direction direction = e.KeyCode switch
+        bool consumesTurn = false;
+        switch (action)
         {
-            Keys.Up or Keys.W => Direction.Up,
-            Keys.Down or Keys.S => Direction.Down,
-            Keys.Left or Keys.A => Direction.Left,
-            Keys.Right or Keys.D => Direction.Right,
-            _ => Direction.None
-        };
-
-        if (direction != Direction.None)
-        {
-            MovePlayer(direction);
-            e.Handled = true;
-            e.SuppressKeyPress = true;
-        }
-        else
-        {
-            switch (e.KeyCode)
-            {
-                case Keys.Q:
-                    Drink();
-                    break;
-                case Keys.E:
-                    Interact();
-                    break;
-                case Keys.F:
-                    ShowChatLog();
-                    break;
-                case Keys.Escape:
-                    running = false;
-                    Close();
-                    return;
-            }
+            case GameAction.MoveUp:
+                MovePlayer(Direction.Up); consumesTurn = true; break;
+            case GameAction.MoveDown:
+                MovePlayer(Direction.Down); consumesTurn = true; break;
+            case GameAction.MoveLeft:
+                MovePlayer(Direction.Left); consumesTurn = true; break;
+            case GameAction.MoveRight:
+                MovePlayer(Direction.Right); consumesTurn = true; break;
+            case GameAction.DrinkPotion:
+                Drink(); consumesTurn = true; break;
+            case GameAction.Interact:
+                consumesTurn = Interact(); break;
+            case GameAction.ChatLog:
+                ShowChatLog(); break;
+            case GameAction.Quit:
+                running = false; Close(); return;
         }
 
-        if (running && player.Alive && (direction != Direction.None || e.KeyCode is Keys.Q or Keys.E))
+        if (running && player.Alive && consumesTurn && !victory)
             MonstersAct();
 
         if (!player.Alive) EndRun();
@@ -173,7 +177,7 @@ public sealed partial class Game : Form
         }
 
         player.Position = target;
-        dungeon.RevealAround(target, 6);
+        RecalculateVisibility(7);
 
         Tile tile = dungeon[target];
         if (tile.Type == TileType.Trap)
@@ -211,6 +215,9 @@ public sealed partial class Game : Form
                     SetMessage($"LEVEL UP! You are now level {player.Level}.");
                 DropLoot(monster.Position, player.DungeonLevel);
                 AutoLoot();
+
+                if (player.DungeonLevel == Dungeon.MaximumDepth && monster.IsBoss)
+                    WinRun();
             }
         }
         else SetMessage($"You miss the {monster.Name}.");
@@ -255,6 +262,7 @@ public sealed partial class Game : Form
     {
         foreach (Monster monster in dungeon.Monsters.Where(m => m.Alive).ToList())
         {
+            if (monster.IsBoss && monster.Position == dungeon.DownStairs) continue;
             int dy = player.Position.Y - monster.Position.Y;
             int dx = player.Position.X - monster.Position.X;
             if (Math.Abs(dy) + Math.Abs(dx) > 10) continue;
@@ -277,15 +285,21 @@ public sealed partial class Game : Form
         }
     }
 
-    private void Interact()
+    private bool Interact()
     {
         if (player.Position == dungeon.DownStairs)
         {
+            if (player.DungeonLevel == Dungeon.MaximumDepth)
+            {
+                SetMessage("The Balrog guards the final stair. Defeat it to conquer Moria.");
+                return false;
+            }
             Descend();
-            return;
+            return true;
         }
 
         ShowInventory();
+        return false;
     }
 
     private void Descend()
@@ -293,8 +307,9 @@ public sealed partial class Game : Form
         player.DungeonLevel++;
         player.Gold += 15 + player.DungeonLevel * 3;
         dungeon.Generate(player.DungeonLevel);
+        visibility = new VisibilityMap(dungeon.Width, dungeon.Height);
         player.Position = dungeon.UpStairs;
-        dungeon.RevealAround(player.Position, 8);
+        RecalculateVisibility(8);
         SaveProgress();
         SetMessage($"You descend to level {player.DungeonLevel}. Enemy power rises with depth.");
     }
@@ -316,13 +331,10 @@ public sealed partial class Game : Form
             }
         }
         tile.GearLoot.Clear();
-
         for (int i = 0; i < potionCount; i++)
             player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
         tile.PotionCount = 0;
-
-        if (gearCount > 0 || potionCount > 0)
-            SetMessage($"Auto-looted {gearCount + potionCount} item{(gearCount + potionCount == 1 ? "" : "s")}.");
+        SetMessage($"Auto-looted {gearCount + potionCount} item{(gearCount + potionCount == 1 ? "" : "s")}.");
     }
 
     private bool ShouldEquip(Gear gear)
@@ -350,7 +362,6 @@ public sealed partial class Game : Form
             SetMessage("You have no potions.");
             return;
         }
-
         player.Inventory.Remove(potion);
         int healed = player.TotalMaxHp - player.Hp;
         player.Hp = player.TotalMaxHp;
@@ -405,13 +416,24 @@ public sealed partial class Game : Form
 
     private void EndRun()
     {
-        if (runOver) return;
+        if (runOver || victory) return;
         runOver = true;
         player.RunsCompleted++;
         lastRunReward = Math.Max(10, player.Gold / 3 + player.DungeonLevel * 10);
         player.PermanentGold += lastRunReward;
         SaveLegacyGold();
         SetMessage($"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.");
+    }
+
+    private void WinRun()
+    {
+        if (victory || runOver) return;
+        victory = true;
+        player.RunsCompleted++;
+        lastRunReward = Math.Max(250, player.Gold + player.DungeonLevel * 25);
+        player.PermanentGold += lastRunReward;
+        SaveLegacyGold();
+        SetMessage("The Balrog falls. Moria has been conquered!");
     }
 
     private void StartFreshRun()
