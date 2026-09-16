@@ -25,6 +25,8 @@ public sealed partial class Game
             return;
 
         CurrentRunElapsed = runClock.Elapsed;
+        ProcessPlayerMovement();
+
         long elapsed = CurrentRunElapsed.Ticks / TimeSpan.TicksPerMillisecond;
         if (elapsed - lastMonsterTickMilliseconds < MonsterTickMilliseconds)
             return;
