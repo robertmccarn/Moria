@@ -10,14 +10,15 @@ namespace Moria;
 
 public sealed partial class Game : Form
 {
-    private const int TileSize = 22;
-    private const int MapWidth = Dungeon.Width * TileSize;
-    private const int MapHeight = Dungeon.Height * TileSize;
-    private const int StatusHeight = 150;
+    private const int TileSize = 40;
+    private const int MapWidth = 1920;
+    private const int MapHeight = 880;
+    private const int StatusHeight = 200;
     private const string MetaFile = "moria.meta";
 
     private readonly Random random = new();
     private readonly WinFormsTimer redrawTimer;
+    private readonly List<string> chatLog = new();
     private Dungeon dungeon = null!;
     private Player player = null!;
     private string message = "Welcome to Moria.";
@@ -27,6 +28,7 @@ public sealed partial class Game : Form
     private int lastRunReward;
 
     public int LastRunReward => lastRunReward;
+    public IReadOnlyList<string> ChatLog => chatLog;
 
     public Game()
     {
@@ -90,13 +92,13 @@ public sealed partial class Game : Form
         player.Hp = player.TotalMaxHp;
         player.Mana = player.MaxMana;
         player.Gold = 100;
-        player.Food = 10;
         player.Experience = 0;
         dungeon.Generate(player.DungeonLevel);
         player.Position = dungeon.UpStairs;
         dungeon.RevealAround(player.Position, 8);
         runOver = false;
-        message = $"Run {player.RunsCompleted + 1}: descend, loot gear, and bring home Legacy Gold.";
+        chatLog.Clear();
+        SetMessage($"Run {player.RunsCompleted + 1} begins. Descend into Moria and survive.");
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -106,7 +108,7 @@ public sealed partial class Game : Form
         if (runOver)
         {
             if (e.KeyCode is Keys.Enter or Keys.Space or Keys.N) StartFreshRun();
-            else if (e.KeyCode is Keys.X or Keys.Escape) { running = false; Close(); }
+            else if (e.KeyCode is Keys.Escape) { running = false; Close(); }
             return;
         }
 
@@ -114,14 +116,10 @@ public sealed partial class Game : Form
 
         Direction direction = e.KeyCode switch
         {
-            Keys.Up or Keys.K => Direction.Up,
-            Keys.Down or Keys.J => Direction.Down,
-            Keys.Left or Keys.H => Direction.Left,
-            Keys.Right or Keys.L => Direction.Right,
-            Keys.Y => Direction.Up,
-            Keys.U => Direction.Right,
-            Keys.B => Direction.Left,
-            Keys.N => Direction.Down,
+            Keys.Up or Keys.W => Direction.Up,
+            Keys.Down or Keys.S => Direction.Down,
+            Keys.Left or Keys.A => Direction.Left,
+            Keys.Right or Keys.D => Direction.Right,
             _ => Direction.None
         };
 
@@ -129,24 +127,34 @@ public sealed partial class Game : Form
         {
             MovePlayer(direction);
             e.Handled = true;
+            e.SuppressKeyPress = true;
         }
         else
         {
             switch (e.KeyCode)
             {
-                case Keys.I: ShowInventory(); break;
-                case Keys.G: Pickup(); break;
-                case Keys.E: Eat(); break;
-                case Keys.Q: Drink(); break;
-                case Keys.R: EquipBestGear(); break;
-                case Keys.S: Save(); break;
-                case Keys.X:
-                case Keys.Escape: running = false; Close(); return;
-                case Keys.OemPeriod: Descend(); break;
+                case Keys.Q:
+                    Drink();
+                    break;
+                case Keys.E:
+                    Interact();
+                    break;
+                case Keys.F:
+                    ShowChatLog();
+                    break;
+                case Keys.Escape:
+                    running = false;
+                    Close();
+                    return;
             }
         }
 
-        if (running && player.Alive && e.KeyCode != Keys.I) MonstersAct();
+        if (running && player.Alive && direction != Direction.None || e.KeyCode == Keys.Q || e.KeyCode == Keys.E)
+        {
+            if (running && player.Alive && (direction != Direction.None || e.KeyCode == Keys.Q || e.KeyCode == Keys.E))
+                MonstersAct();
+        }
+
         if (!player.Alive) EndRun();
         Invalidate();
     }
@@ -154,26 +162,35 @@ public sealed partial class Game : Form
     private void MovePlayer(Direction direction)
     {
         Position target = player.Position.Step(direction);
-        if (!dungeon.IsWalkable(target)) { message = "You cannot move there."; return; }
+        if (!dungeon.IsWalkable(target))
+        {
+            SetMessage("You cannot move there.");
+            return;
+        }
 
         Monster? monster = dungeon.MonsterAt(target);
-        if (monster != null) { Attack(monster); return; }
+        if (monster != null)
+        {
+            Attack(monster);
+            return;
+        }
 
         player.Position = target;
         dungeon.RevealAround(target, 6);
+
         Tile tile = dungeon[target];
         if (tile.Type == TileType.Trap)
         {
             int damage = random.Next(1, 5);
             player.Hp -= damage;
-            message = $"A trap wounds you for {damage}!";
+            SetMessage($"A trap wounds you for {damage}!");
         }
-        else if (tile.GearLoot.Count > 0 || tile.PotionCount > 0)
+        else if (target == dungeon.DownStairs)
         {
-            int lootCount = tile.GearLoot.Count + tile.PotionCount;
-            message = $"You see {lootCount} loot item{(lootCount == 1 ? "" : "s")}. Press G to collect all.";
+            SetMessage("You found the stairs down. Press E to descend.");
         }
-        else if (target == dungeon.DownStairs) message = "Press . to descend deeper into Moria.";
+
+        AutoLoot();
     }
 
     private void Attack(Monster monster)
@@ -184,18 +201,22 @@ public sealed partial class Game : Form
             int damage = random.Next(1, 7) + Math.Max(1, player.TotalAttack / 2);
             if (critical) damage *= 2;
             monster.Hp -= damage;
-            message = critical ? $"CRITICAL! You cleave the {monster.Name} for {damage}." : $"You hit the {monster.Name} for {damage}.";
+            SetMessage(critical ? $"CRITICAL! You cleave the {monster.Name} for {damage}." : $"You hit the {monster.Name} for {damage}.");
             if (!monster.Alive)
             {
                 int xp = monster.ExperienceValue;
                 int gold = random.Next(4, 13) + player.DungeonLevel * 2;
                 player.Gold += gold;
+                int oldLevel = player.Level;
                 player.GainExperience(xp);
-                message += $" +{xp} XP, +{gold} gold.";
+                SetMessage($"The {monster.Name} dies. +{xp} XP, +{gold} gold.");
+                if (player.Level > oldLevel)
+                    SetMessage($"LEVEL UP! You are now level {player.Level}.");
                 DropLoot(monster.Position, player.DungeonLevel);
+                AutoLoot();
             }
         }
-        else message = $"You miss the {monster.Name}.";
+        else SetMessage($"You miss the {monster.Name}.");
     }
 
     private void DropLoot(Position position, int level)
@@ -206,10 +227,12 @@ public sealed partial class Game : Form
         {
             Gear gear = CreateLoot(level);
             tile.GearLoot.Add(gear);
+            SetMessage($"Loot dropped: {RarityName(gear.Rarity)} {gear.Name}.");
         }
         else if (roll < 70)
         {
             tile.PotionCount++;
+            SetMessage("A healing potion drops.");
         }
     }
 
@@ -248,69 +271,67 @@ public sealed partial class Game : Form
                 {
                     int damage = random.Next(1, 5) + monster.Level / 2;
                     player.Hp -= damage;
-                    message = $"The {monster.Name} hits you for {damage}!";
+                    SetMessage($"The {monster.Name} hits you for {damage}!");
                 }
-                else message = $"The {monster.Name} misses you.";
+                else SetMessage($"The {monster.Name} misses you.");
             }
             else if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null) monster.Position = target;
             if (!player.Alive) return;
         }
     }
 
+    private void Interact()
+    {
+        if (player.Position == dungeon.DownStairs)
+        {
+            Descend();
+            return;
+        }
+
+        ShowInventory();
+    }
+
     private void Descend()
     {
-        if (player.Position != dungeon.DownStairs) { message = "There are no stairs here."; return; }
         player.DungeonLevel++;
         player.Gold += 15 + player.DungeonLevel * 3;
         dungeon.Generate(player.DungeonLevel);
         player.Position = dungeon.UpStairs;
         dungeon.RevealAround(player.Position, 8);
-        message = $"You descend to level {player.DungeonLevel}. Enemy power rises with depth.";
+        SaveProgress();
+        SetMessage($"You descend to level {player.DungeonLevel}. Enemy power rises with depth.");
     }
 
-    private void Pickup()
+    private void AutoLoot()
     {
         Tile tile = dungeon[player.Position];
         int gearCount = tile.GearLoot.Count;
         int potionCount = tile.PotionCount;
-
-        if (gearCount == 0 && potionCount == 0)
-        {
-            message = "There is nothing here.";
-            return;
-        }
+        if (gearCount == 0 && potionCount == 0) return;
 
         foreach (Gear gear in tile.GearLoot)
         {
             player.GearInventory.Add(gear);
-            if (ShouldEquip(gear)) player.Equip(gear);
+            if (ShouldEquip(gear))
+            {
+                player.Equip(gear);
+                SetMessage($"Auto-equipped {gear.Name}: {GearSummary(gear)}");
+            }
         }
-
         tile.GearLoot.Clear();
 
         for (int i = 0; i < potionCount; i++)
             player.Inventory.Add(new Item("Potion of Healing", '!', 50, 0, 0, ItemKind.Potion));
-
         tile.PotionCount = 0;
 
-        List<string> lootParts = new();
-        if (gearCount > 0) lootParts.Add($"{gearCount} gear");
-        if (potionCount > 0) lootParts.Add($"{potionCount} potion{(potionCount == 1 ? "" : "s")}");
-        message = $"Collected all loot: {string.Join(" and ", lootParts)}.";
+        if (gearCount > 0 || potionCount > 0)
+            SetMessage($"Auto-looted {gearCount + potionCount} item{(gearCount + potionCount == 1 ? "" : "s")}.");
     }
 
     private bool ShouldEquip(Gear gear)
     {
         Gear? current = player.Equipped(gear.Slot);
         return current == null || GearScore(gear) > GearScore(current);
-    }
-
-    private void EquipBestGear()
-    {
-        Gear? best = player.GearInventory.OrderByDescending(GearScore).FirstOrDefault(ShouldEquip);
-        if (best == null) { message = "Nothing in your pack would improve your equipment."; return; }
-        player.Equip(best);
-        message = $"Equipped {best.Name}: {GearSummary(best)}";
     }
 
     private static int GearScore(Gear gear) => gear.AttackBonus * 5 + gear.ArmorBonus * 5 + gear.MaxHpBonus + gear.Rarity * 2;
@@ -324,34 +345,66 @@ public sealed partial class Game : Form
         return string.Join(", ", parts);
     }
 
-    private void Eat()
-    {
-        if (player.Food <= 0) { message = "You have no food."; return; }
-        player.Food--;
-        player.Hp = Math.Min(player.TotalMaxHp, player.Hp + 3);
-        message = "You eat some food and recover 3 HP.";
-    }
-
     private void Drink()
     {
         Item? potion = player.Inventory.FirstOrDefault(i => i.Kind == ItemKind.Potion);
-        if (potion == null) { message = "You have no potions."; return; }
+        if (potion == null)
+        {
+            SetMessage("You have no potions.");
+            return;
+        }
+
         player.Inventory.Remove(potion);
         int healed = player.TotalMaxHp - player.Hp;
         player.Hp = player.TotalMaxHp;
-        message = $"Potion used: +{healed} HP.";
+        SetMessage(healed > 0 ? $"You drink a healing potion and recover {healed} HP." : "You drink a healing potion, but you are already at full health.");
     }
 
     private void ShowInventory()
     {
         string gear = player.GearInventory.Count == 0 ? "No spare gear." : string.Join(Environment.NewLine, player.GearInventory.Select(g => $"{RarityName(g.Rarity)} {g.Name} [{g.Slot}] {GearSummary(g)}"));
-        string items = player.Inventory.Count == 0 ? "No consumables." : string.Join(Environment.NewLine, player.Inventory.Select(i => $"{i.Name}    {i.Value} gp"));
+        string items = player.Inventory.Count == 0 ? "No potions." : string.Join(Environment.NewLine, player.Inventory.Select(i => $"{i.Name}    {i.Value} gp"));
         string equipped = $"WEAPON: {player.Weapon?.Name ?? "None"}\nARMOR:  {player.Armor?.Name ?? "None"}\nRING:   {player.Ring?.Name ?? "None"}";
-        MessageBox.Show(this, $"EQUIPPED\n{equipped}\n\nLOOT\n{gear}\n\nCONSUMABLES\n{items}", "Inventory & Gear", MessageBoxButtons.OK, MessageBoxIcon.None);
+        MessageBox.Show(this, $"EQUIPPED\n{equipped}\n\nLOOT\n{gear}\n\nPOTIONS\n{items}", "Inventory & Gear", MessageBoxButtons.OK, MessageBoxIcon.None);
+        Focus();
+    }
+
+    private void ShowChatLog()
+    {
+        string text = chatLog.Count == 0 ? "No actions yet." : string.Join(Environment.NewLine, chatLog);
+        using Form dialog = new()
+        {
+            Text = "Moria — Chat Log",
+            ClientSize = new Size(760, 620),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false
+        };
+        TextBox log = new()
+        {
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(12, 13, 17),
+            ForeColor = Color.Gainsboro,
+            Font = new Font("Consolas", 10),
+            Text = text
+        };
+        dialog.Controls.Add(log);
+        dialog.ShowDialog(this);
         Focus();
     }
 
     private static string RarityName(int rarity) => rarity switch { 1 => "Common", 2 => "Rare", 3 => "Epic", _ => "Legendary" };
+
+    private void SetMessage(string text)
+    {
+        message = text;
+        chatLog.Add(text);
+        if (chatLog.Count > 250) chatLog.RemoveAt(0);
+    }
 
     private void EndRun()
     {
@@ -361,7 +414,7 @@ public sealed partial class Game : Form
         lastRunReward = Math.Max(10, player.Gold / 3 + player.DungeonLevel * 10);
         player.PermanentGold += lastRunReward;
         SaveLegacyGold();
-        message = $"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.";
+        SetMessage($"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.");
     }
 
     private void StartFreshRun()
@@ -369,7 +422,7 @@ public sealed partial class Game : Form
         int legacy = player.PermanentGold;
         player = new Player(player.Name, new Position(1, 1), legacy);
         StartRun();
-        message = $"New run begins. Legacy Gold: {legacy}.";
+        SetMessage($"New run begins. Legacy Gold: {legacy}.");
         Focus();
         Invalidate();
     }
@@ -387,10 +440,9 @@ public sealed partial class Game : Form
 
     private void SaveLegacyGold() => File.WriteAllText(MetaFile, $"{player.PermanentGold}|{player.RunsCompleted}");
 
-    private void Save()
+    private void SaveProgress()
     {
         File.WriteAllText("moria.sav", string.Join('|', player.Name, player.Level, player.Experience, player.Hp, player.TotalMaxHp, player.Gold, player.DungeonLevel, player.PermanentGold));
         SaveLegacyGold();
-        message = "Run saved. Legacy Gold persisted.";
     }
 }
