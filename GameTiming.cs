@@ -37,8 +37,8 @@ public sealed partial class Game
             return;
 
         lastMonsterTickMilliseconds = elapsed;
-        MonstersAct();
-        if (!player.Alive)
+        ProcessMonsterTurn();
+        if (!player.Alive && CurrentBattle == null)
             EndRun();
     }
 }
