@@ -28,11 +28,7 @@ public static class InputManager
 
     public static void Release(Keys key) => HeldMovementKeys.Remove(key);
 
-    public static bool IsHeld(Keys key) => HeldMovementKeys.Contains(key);
-
-    private static bool IsMovementKey(Keys key) => key is
-        Keys.Up or Keys.Down or Keys.Left or Keys.Right or
-        Keys.W or Keys.A or Keys.S or Keys.D;
+    public static void ClearMovementKeys() => HeldMovementKeys.Clear();
 
     public static (float X, float Y) GetMovementVector()
     {
@@ -44,4 +40,10 @@ public static class InputManager
         float length = MathF.Sqrt(x * x + y * y);
         return length > 0f ? (x / length, y / length) : (0f, 0f);
     }
+
+    private static bool IsHeld(Keys key) => HeldMovementKeys.Contains(key);
+
+    private static bool IsMovementKey(Keys key) => key is
+        Keys.Up or Keys.Down or Keys.Left or Keys.Right or
+        Keys.W or Keys.A or Keys.S or Keys.D;
 }
