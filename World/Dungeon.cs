@@ -7,8 +7,8 @@ public sealed class Dungeon
 {
     public const int StartingWidth = 80;
     public const int StartingHeight = 22;
-    public const int MaximumWidth = 160;
-    public const int MaximumHeight = 46;
+    public const int MaximumWidth = 180;
+    public const int MaximumHeight = 28;
     public const int MaximumDepth = 50;
 
     private Tile[,] tiles = null!;
