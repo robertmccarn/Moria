@@ -1,4 +1,5 @@
 using System.Drawing;
+using Moria;
 using Moria.Entities;
 using Moria.Items;
 
@@ -29,7 +30,7 @@ public sealed class UiRenderer
         using SolidBrush gold = new(UiTheme.Gold);
 
         g.DrawString($"{player.Name}   LV {player.Level}", body, text, left.X + 10, left.Y + 23);
-        g.DrawString($"DEPTH {player.DungeonLevel}   RUN {player.RunsCompleted + (runOver || victory ? 0 : 1)}", small, muted, left.X + 10, left.Y + 38);
+        g.DrawString($"DEPTH {player.DungeonLevel}   RUN {player.RunsCompleted + (runOver || victory ? 0 : 1)}   TIME {Game.CurrentRunElapsed:mm\\:ss}", small, muted, left.X + 10, left.Y + 38);
         DrawBar(g, new Rectangle(left.X + 10, left.Y + 51, 116, 14), player.Hp, Math.Max(1, player.TotalMaxHp), UiTheme.Hp, "HP");
         DrawBar(g, new Rectangle(left.X + 132, left.Y + 51, 116, 14), player.Experience, Math.Max(1, player.Level * 100), UiTheme.Xp, "XP");
         DrawStat(g, left.X + 10, left.Y + 72, "ATK", player.TotalAttack, UiTheme.Accent, body);
