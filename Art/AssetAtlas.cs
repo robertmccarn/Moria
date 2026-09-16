@@ -38,14 +38,12 @@ public sealed class AssetAtlas : IDisposable
             TileType.Trap => new Rectangle(870, 473, 60, 60),
             _ => new Rectangle(1360, 135, 60, 60)
         };
-
         string key = $"tile:{type}:{source.X}:{source.Y}:{destination.Width}:{destination.Height}";
         if (!tileCache.TryGetValue(key, out Bitmap? sprite))
         {
             sprite = ExtractScaledSprite(tiles, source, destination.Width, destination.Height);
             tileCache[key] = sprite;
         }
-
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImageUnscaled(sprite, destination.X, destination.Y);
@@ -59,14 +57,7 @@ public sealed class AssetAtlas : IDisposable
             DrawSprite(g, warrior, new Rectangle(1280, 125, 170, 100), destination, "warrior:dead");
             return;
         }
-
-        int row = facing switch
-        {
-            Direction.Up => 1,
-            Direction.Left => 2,
-            Direction.Right => 3,
-            _ => 0
-        };
+        int row = facing switch { Direction.Up => 1, Direction.Left => 2, Direction.Right => 3, _ => 0 };
         int frame = (Environment.TickCount / 180) % 4;
         int[] centers = [145, 255, 365, 475];
         Rectangle source = new(centers[frame] - 48, 68 + row * 165, 96, 125);
@@ -79,33 +70,24 @@ public sealed class AssetAtlas : IDisposable
         int panel = monster.Name switch
         {
             "Kobold" => 0,
-            "Orc" => 1,
+            "Orc" or "Orc Warlord" => 1,
             "Giant Rat" => 2,
-            "Skeleton" => 3,
+            "Skeleton" or "Demon Lord" => 3,
             "Wolf" => 4,
-            "Troll" => 5,
+            "Troll" or "Stone Colossus" or "Balrog" => 5,
             _ => 0
         };
-
         int rowBlock = panel / 3;
         int columnBlock = panel % 3;
         int[] centersX = [150, 255, 365, 470];
         int frame = (Environment.TickCount / 220) % 4;
-        int centerX = columnBlock switch
-        {
-            0 => centersX[frame],
-            1 => 650 + (frame * 105),
-            _ => 1150 + (frame * 105)
-        };
+        int centerX = columnBlock switch { 0 => centersX[frame], 1 => 650 + frame * 105, _ => 1150 + frame * 105 };
         int centerY = rowBlock == 0 ? 155 : 535;
         Rectangle source = new(centerX - 48, centerY - 48, 96, 88);
         DrawSprite(g, monsters, source, destination, $"monster:{monster.Name}:{frame}");
     }
 
-    public void DrawPotion(Graphics g, Rectangle destination)
-    {
-        DrawSprite(g, items, new Rectangle(28, 140, 70, 90), FitSprite(destination, 24), "potion");
-    }
+    public void DrawPotion(Graphics g, Rectangle destination) => DrawSprite(g, items, new Rectangle(28, 140, 70, 90), FitSprite(destination, 24), "potion");
 
     public void DrawGear(Graphics g, Rectangle destination, Gear gear)
     {
@@ -122,11 +104,7 @@ public sealed class AssetAtlas : IDisposable
     private static Rectangle FitSprite(Rectangle destination, int maxSize)
     {
         int size = Math.Min(maxSize, Math.Min(destination.Width, destination.Height));
-        return new Rectangle(
-            destination.X + (destination.Width - size) / 2,
-            destination.Y + (destination.Height - size) / 2,
-            size,
-            size);
+        return new Rectangle(destination.X + (destination.Width - size) / 2, destination.Y + (destination.Height - size) / 2, size, size);
     }
 
     private static Rectangle FloorRect(int index) => new(25 + index * 80, 135, 64, 64);
@@ -139,7 +117,6 @@ public sealed class AssetAtlas : IDisposable
             sprite = ExtractSprite(sheet, source);
             cache[key] = sprite;
         }
-
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(sprite, destination);
@@ -149,7 +126,6 @@ public sealed class AssetAtlas : IDisposable
     {
         Bitmap crop = ExtractSprite(sheet, source);
         if (crop.Width == width && crop.Height == height) return crop;
-
         Bitmap scaled = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(scaled))
         {
@@ -166,12 +142,7 @@ public sealed class AssetAtlas : IDisposable
         Bitmap crop = new(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(crop))
             g.DrawImage(sheet, new Rectangle(0, 0, source.Width, source.Height), source, GraphicsUnit.Pixel);
-
-        Color tl = crop.GetPixel(0, 0);
-        Color tr = crop.GetPixel(crop.Width - 1, 0);
-        Color bl = crop.GetPixel(0, crop.Height - 1);
-        Color br = crop.GetPixel(crop.Width - 1, crop.Height - 1);
-
+        Color tl = crop.GetPixel(0, 0), tr = crop.GetPixel(crop.Width - 1, 0), bl = crop.GetPixel(0, crop.Height - 1), br = crop.GetPixel(crop.Width - 1, crop.Height - 1);
         for (int y = 0; y < crop.Height; y++)
         for (int x = 0; x < crop.Width; x++)
         {
@@ -183,7 +154,6 @@ public sealed class AssetAtlas : IDisposable
             int alpha = distance <= 18 ? 0 : distance >= 42 ? 255 : (int)((distance - 18) * 255 / 24);
             crop.SetPixel(x, y, Color.FromArgb(alpha, pixel.R, pixel.G, pixel.B));
         }
-
         return crop;
     }
 
@@ -197,9 +167,7 @@ public sealed class AssetAtlas : IDisposable
 
     private static double ColorDistance(Color a, Color b)
     {
-        int r = a.R - b.R;
-        int g = a.G - b.G;
-        int blue = a.B - b.B;
+        int r = a.R - b.R, g = a.G - b.G, blue = a.B - b.B;
         return Math.Sqrt(r * r + g * g + blue * blue);
     }
 
