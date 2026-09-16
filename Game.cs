@@ -108,7 +108,7 @@ public sealed partial class Game : Form
         dungeon.Generate(currentPlayer.DungeonLevel);
         visibility = new VisibilityMap(dungeon.Width, dungeon.Height);
         currentPlayer.Position = dungeon.UpStairs;
-        RecalculateVisibility(8);
+        fieldOfView.Recalculate(dungeon, currentPlayer.Position, 8, visibility);
         runOver = false;
         victory = false;
         chatLog.Clear();
@@ -404,7 +404,7 @@ public sealed partial class Game : Form
     {
         int legacy = player.PermanentGold;
         player = new Player(player.Name, new Position(1, 1), legacy);
-        StartRun();
+        StartRun(player);
         SetMessage($"New run begins. Legacy Gold: {legacy}.");
         Focus();
         Invalidate();
