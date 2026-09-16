@@ -13,6 +13,8 @@ public sealed partial class Game
     private readonly AssetAtlas assets = new();
     private Position lastRenderedPlayerPosition;
     private Direction playerFacing = Direction.Down;
+    private int lastRenderedLevel = -1;
+    private long levelUpPulseStart;
 
     private void DrawMap(Graphics g)
     {
@@ -22,6 +24,14 @@ public sealed partial class Game
 
         using SolidBrush mapBackground = new(Color.FromArgb(4, 5, 7));
         g.FillRectangle(mapBackground, 0, 0, MapWidth, MapHeight);
+
+        if (lastRenderedLevel < 0)
+            lastRenderedLevel = player.Level;
+        else if (player.Level > lastRenderedLevel)
+        {
+            lastRenderedLevel = player.Level;
+            levelUpPulseStart = Environment.TickCount64;
+        }
 
         if (lastRenderedPlayerPosition != player.Position)
         {
@@ -63,14 +73,92 @@ public sealed partial class Game
             }
         }
 
-        Rectangle playerRect = CenteredSpriteRect(
-            new Rectangle(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize),
-            28);
+        Rectangle playerTile = new(player.Position.X * TileSize, player.Position.Y * TileSize, TileSize, TileSize);
+        Rectangle playerRect = CenteredSpriteRect(playerTile, 28);
 
-        DrawPlayerMarker(g, playerRect);
+        DrawPlayerEnergy(g, playerTile);
         assets.DrawPlayer(g, playerRect, playerFacing, player.Alive);
 
         if (runOver) DrawDeathOverlay(g);
+    }
+
+    private void DrawPlayerEnergy(Graphics g, Rectangle tile)
+    {
+        long now = Environment.TickCount64;
+        double pulseAge = levelUpPulseStart <= 0 ? double.MaxValue : now - levelUpPulseStart;
+        double pulse = pulseAge < 1100
+            ? 1.0 - pulseAge / 1100.0
+            : 0.0;
+
+        double pulseWave = pulse > 0
+            ? Math.Sin((1.0 - pulse) * Math.PI * 3.0) * pulse
+            : 0.0;
+
+        int level = Math.Max(1, player.Level);
+        double hue = EnergyHue(level);
+        double saturation = 0.72 + Math.Min(0.18, level / 50.0);
+        double lightness = 0.54 + Math.Min(0.08, level / 100.0);
+        Color energy = HslToColor(hue, saturation, lightness);
+
+        int baseWidth = 24 + Math.Min(8, level / 4);
+        int baseHeight = 9 + Math.Min(4, level / 6);
+        int width = (int)Math.Round(baseWidth + pulseWave * 9);
+        int height = (int)Math.Round(baseHeight + pulseWave * 4);
+        int centerX = tile.X + tile.Width / 2;
+        int centerY = tile.Y + tile.Height - 4;
+
+        int glowAlpha = 22 + Math.Min(18, level) + (int)(Math.Max(0, pulseWave) * 70);
+        int coreAlpha = 38 + Math.Min(22, level) + (int)(Math.Max(0, pulseWave) * 95);
+
+        using SolidBrush outer = new(Color.FromArgb(Math.Clamp(glowAlpha / 2, 8, 80), energy.R, energy.G, energy.B));
+        using SolidBrush middle = new(Color.FromArgb(Math.Clamp(glowAlpha, 15, 120), energy.R, energy.G, energy.B));
+        using SolidBrush core = new(Color.FromArgb(Math.Clamp(coreAlpha, 20, 165), energy.R, energy.G, energy.B));
+
+        g.FillEllipse(outer, new Rectangle(centerX - width - 5, centerY - height / 2 - 2, width * 2 + 10, height + 5));
+        g.FillEllipse(middle, new Rectangle(centerX - width, centerY - height / 2, width * 2, height));
+        g.FillEllipse(core, new Rectangle(centerX - width / 2, centerY - height / 3, width, Math.Max(3, height / 2)));
+
+        if (pulse > 0)
+        {
+            int ringWidth = (int)Math.Round(18 + (1.0 - pulse) * 18);
+            int ringHeight = (int)Math.Round(7 + (1.0 - pulse) * 7);
+            int ringAlpha = (int)Math.Round(95 * pulse);
+            using Pen ring = new(Color.FromArgb(Math.Clamp(ringAlpha, 0, 110), energy.R, energy.G, energy.B), 1.5f);
+            g.DrawEllipse(ring, new Rectangle(centerX - ringWidth, centerY - ringHeight / 2, ringWidth * 2, ringHeight));
+        }
+    }
+
+    private static double EnergyHue(int level)
+    {
+        // Cool arcane energy at low level gradually becomes more vivid and violet as power rises.
+        double progress = Math.Clamp((level - 1) / 24.0, 0.0, 1.0);
+        return 195.0 + progress * 85.0;
+    }
+
+    private static Color HslToColor(double hue, double saturation, double lightness)
+    {
+        hue %= 360.0;
+        if (hue < 0) hue += 360.0;
+
+        double c = (1.0 - Math.Abs(2.0 * lightness - 1.0)) * saturation;
+        double x = c * (1.0 - Math.Abs((hue / 60.0) % 2.0 - 1.0));
+        double m = lightness - c / 2.0;
+        double r;
+        double g;
+        double b;
+
+        if (hue < 60) (r, g, b) = (c, x, 0);
+        else if (hue < 120) (r, g, b) = (x, c, 0);
+        else if (hue < 180) (r, g, b) = (0, c, x);
+        else if (hue < 240) (r, g, b) = (0, x, c);
+        else if (hue < 300) (r, g, b) = (x, 0, c);
+        else (r, g, b) = (c, 0, x);
+
+        return Color.FromArgb(
+            255,
+            (int)Math.Round((r + m) * 255),
+            (int)Math.Round((g + m) * 255),
+            (int)Math.Round((b + m) * 255));
     }
 
     private static Rectangle CenteredSpriteRect(Rectangle tile, int size)
@@ -78,13 +166,6 @@ public sealed partial class Game
         int x = tile.X + (tile.Width - size) / 2;
         int y = tile.Y + (tile.Height - size) / 2;
         return new Rectangle(x, y, size, size);
-    }
-
-    private static void DrawPlayerMarker(Graphics g, Rectangle playerRect)
-    {
-        using Pen glow = new(Color.FromArgb(180, 255, 215, 70), 2);
-        Rectangle marker = new(playerRect.X - 2, playerRect.Y - 2, playerRect.Width + 4, playerRect.Height + 4);
-        g.DrawRectangle(glow, marker);
     }
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
