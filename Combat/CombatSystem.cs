@@ -8,13 +8,18 @@ public sealed class CombatSystem
 {
     public CombatResult PlayerAttack(Player player, Monster monster, Random random)
     {
-        if (random.Next(1, 21) + player.TotalAttack < monster.ArmorClass)
+        int attackRoll = random.Next(1, 21);
+        if (attackRoll + player.TotalAttack < monster.ArmorClass)
             return new CombatResult(false, false, 0, false);
 
         bool critical = random.Next(100) < 8 + player.Dexterity / 5;
-        int damage = random.Next(1, 7) + Math.Max(1, player.TotalAttack / 2);
-        if (critical) damage *= 2;
-        monster.Hp -= damage;
+        int rolledDamage = random.Next(1, 7) + Math.Max(1, player.TotalAttack / 2);
+        if (critical)
+            rolledDamage *= 2;
+
+        int damage = Math.Min(rolledDamage, monster.Hp);
+        monster.Hp = Math.Max(0, monster.Hp - damage);
+
         return new CombatResult(true, critical, damage, !monster.Alive);
     }
 
@@ -24,7 +29,7 @@ public sealed class CombatSystem
             return new CombatResult(false, false, 0, false);
 
         int damage = random.Next(1, 5) + monster.Level / 2;
-        player.Hp -= damage;
+        player.Hp = Math.Max(0, player.Hp - damage);
         return new CombatResult(true, false, damage, !player.Alive);
     }
 }
