@@ -12,6 +12,9 @@ namespace Moria;
 
 public sealed partial class Game
 {
+    private const int BattleGroupRadius = 5;
+    private const int BattleGroupLimit = 6;
+
     internal TurnBasedBattle? CurrentBattle { get; private set; }
     internal int BattleMenuIndex => battleMenuIndex;
     private BattleOverlayControl? battleOverlay;
@@ -75,6 +78,8 @@ public sealed partial class Game
         if (key is Keys.D4 or Keys.NumPad4) return ExecuteBattleMenu(3);
         if (key is Keys.D5 or Keys.NumPad5) return ExecuteBattleMenu(4);
 
+        if (key == Keys.Left) { CurrentBattle.CycleTarget(-1); battleOverlay?.Invalidate(); return true; }
+        if (key == Keys.Right) { CurrentBattle.CycleTarget(1); battleOverlay?.Invalidate(); return true; }
         if (key == Keys.Up)
         {
             battleMenuIndex = (battleMenuIndex + 4) % 5;
@@ -115,13 +120,23 @@ public sealed partial class Game
         if (CurrentBattle != null || !monster.Alive)
             return;
 
+        List<Monster> group = dungeon.Monsters
+            .Where(enemy => enemy.Alive)
+            .Where(enemy => Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X) <= BattleGroupRadius)
+            .OrderBy(enemy => Math.Abs(enemy.Position.Y - player.Position.Y) + Math.Abs(enemy.Position.X - player.Position.X))
+            .Take(BattleGroupLimit)
+            .ToList();
+
+        if (!group.Contains(monster))
+            group.Insert(0, monster);
+
         playerRolling = false;
         InputManager.ClearMovementKeys();
-        CurrentBattle = new TurnBasedBattle(player, monster, combat, random);
+        CurrentBattle = new TurnBasedBattle(player, group, combat, random);
         battleMenuIndex = 0;
         battleOverlay!.Visible = true;
         battleOverlay.BringToFront();
-        SetMessage($"A {monster.Name} blocks your path!");
+        SetMessage(group.Count == 1 ? $"A {monster.Name} blocks your path!" : $"{group.Count} enemies surround you!");
         battleOverlay.Invalidate();
     }
 
@@ -129,23 +144,31 @@ public sealed partial class Game
     {
         if (battle.Phase == BattlePhase.Victory)
         {
-            Monster monster = battle.Enemy;
-            int xp = monster.ExperienceValue;
-            int gold = random.Next(4, 13) + player.DungeonLevel * 2;
-            player.Gold += gold;
+            int totalXp = 0;
+            int totalGold = 0;
             int oldLevel = player.Level;
-            player.GainExperience(xp);
-            DropLoot(monster.Position, player.DungeonLevel);
+
+            foreach (Monster monster in battle.Enemies.Where(enemy => !enemy.Alive))
+            {
+                int xp = monster.ExperienceValue;
+                int gold = random.Next(4, 13) + player.DungeonLevel * 2;
+                totalXp += xp;
+                totalGold += gold;
+                player.Gold += gold;
+                DropLoot(monster.Position, player.DungeonLevel);
+            }
+
+            player.GainExperience(totalXp);
             AutoLoot();
-            SetMessage($"Victory! +{xp} XP, +{gold} gold.");
+            SetMessage($"Victory! +{totalXp} XP, +{totalGold} gold. {battle.Enemies.Count} enemies defeated.");
             if (player.Level > oldLevel)
                 SetMessage($"LEVEL UP! You are now level {player.Level}.");
-            if (player.DungeonLevel == Dungeon.MaximumDepth && monster.IsBoss)
+            if (player.DungeonLevel == Dungeon.MaximumDepth && battle.Enemies.Any(enemy => enemy.IsBoss && !enemy.Alive))
                 WinRun();
         }
         else if (battle.Phase == BattlePhase.Fled)
         {
-            EscapeBattlePosition(battle.Enemy.Position);
+            EscapeBattlePosition(battle.CurrentEnemy.Position);
             SetMessage("You escape the battle.");
         }
         else if (battle.Phase == BattlePhase.Defeat)
@@ -220,60 +243,82 @@ internal sealed class BattleOverlayControl : Control
         using SolidBrush shade = new(Color.FromArgb(205, 0, 0, 0));
         g.FillRectangle(shade, ClientRectangle);
 
-        Rectangle arena = new(180, 105, 1560, 560);
+        Rectangle arena = new(140, 90, 1640, 590);
         using SolidBrush arenaBrush = new(Color.FromArgb(235, 10, 11, 15));
         using Pen arenaBorder = new(Color.FromArgb(150, 112, 91, 47), 3);
         g.FillRectangle(arenaBrush, arena);
         g.DrawRectangle(arenaBorder, arena);
 
-        DrawEnemy(g, battle);
+        DrawEnemies(g, battle);
         DrawPlayer(g, battle);
         DrawStatus(g, battle);
         DrawCommandWindow(g);
     }
 
-    private void DrawEnemy(Graphics g, TurnBasedBattle battle)
+    private void DrawEnemies(Graphics g, TurnBasedBattle battle)
     {
-        Rectangle sprite = new(430, 185, battle.Enemy.IsBoss ? 260 : 190, battle.Enemy.IsBoss ? 260 : 190);
-        assets.DrawMonster(g, sprite, battle.Enemy);
-
-        using Font name = new("Segoe UI", 16, FontStyle.Bold);
+        using Font name = new("Segoe UI", 11, FontStyle.Bold);
+        using Font details = new("Segoe UI", 8.5f, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
-        using SolidBrush muted = new(Color.FromArgb(170, 175, 185));
-        using Font details = new("Segoe UI", 11, FontStyle.Bold);
-        g.DrawString(battle.Enemy.Name.ToUpperInvariant(), name, text, 395, 460);
-        g.DrawString($"LV {battle.Enemy.Level}    HP {Math.Max(0, battle.Enemy.Hp)}", details, muted, 395, 487);
-        DrawBar(g, new Rectangle(395, 515, 330, 16), battle.Enemy.Hp, Math.Max(1, battle.Enemy.MaxHp));
+        using SolidBrush muted = new(Color.FromArgb(165, 175, 185));
+        using SolidBrush targetBrush = new(Color.FromArgb(70, 112, 91, 47));
+
+        for (int i = 0; i < battle.Enemies.Count; i++)
+        {
+            Monster enemy = battle.Enemies[i];
+            int column = i % 3;
+            int row = i / 3;
+            int x = 205 + column * 285;
+            int y = 145 + row * 235;
+            Rectangle card = new(x, y, 255, 215);
+
+            if (i == battle.TargetIndex && enemy.Alive)
+                g.FillRectangle(targetBrush, card);
+
+            Rectangle sprite = new(x + 55, y + 8, 145, 145);
+            assets.DrawMonster(g, sprite, enemy);
+            g.DrawString($"{i + 1}. {enemy.Name.ToUpperInvariant()}", name, enemy.Alive ? text : muted, x + 12, y + 155);
+            g.DrawString($"LV {enemy.Level}    HP {Math.Max(0, enemy.Hp)}/{enemy.MaxHp}", details, muted, x + 12, y + 177);
+            DrawBar(g, new Rectangle(x + 12, y + 194, 225, 10), enemy.Hp, Math.Max(1, enemy.MaxHp));
+        }
     }
 
     private void DrawPlayer(Graphics g, TurnBasedBattle battle)
     {
-        Rectangle sprite = new(1120, 190, 180, 180);
+        Rectangle panel = new(1175, 120, 470, 475);
+        using SolidBrush panelBrush = new(Color.FromArgb(105, 0, 0, 0));
+        using Pen border = new(Color.FromArgb(100, 112, 91, 47), 2);
+        g.FillRectangle(panelBrush, panel);
+        g.DrawRectangle(border, panel);
+
+        Rectangle sprite = new(1320, 160, 180, 180);
         assets.DrawPlayer(g, sprite, Direction.Left, battle.Player.Alive);
 
         using Font name = new("Segoe UI", 16, FontStyle.Bold);
+        using Font details = new("Segoe UI", 11, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         using SolidBrush muted = new(Color.FromArgb(170, 175, 185));
-        using Font details = new("Segoe UI", 11, FontStyle.Bold);
-        g.DrawString(battle.Player.Name.ToUpperInvariant(), name, text, 1065, 460);
-        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", details, muted, 1065, 487);
-        DrawBar(g, new Rectangle(1065, 515, 330, 16), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
+        g.DrawString(battle.Player.Name.ToUpperInvariant(), name, text, 1250, 365);
+        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", details, muted, 1250, 393);
+        DrawBar(g, new Rectangle(1250, 423, 320, 16), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
+        g.DrawString("LEFT / RIGHT: TARGET", details, muted, 1250, 465);
+        g.DrawString("Enemies act in turn order after your action.", details, muted, 1250, 492);
     }
 
     private static void DrawStatus(Graphics g, TurnBasedBattle battle)
     {
         using Font phase = new("Segoe UI", 11, FontStyle.Bold);
-        using Font message = new("Segoe UI", 10, FontStyle.Bold);
+        using Font message = new("Segoe UI", 9.5f, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
         using SolidBrush text = new(UiTheme.Text);
         string heading = battle.Phase == BattlePhase.PlayerTurn ? "YOUR TURN" : "ENEMY TURN";
-        g.DrawString(heading, phase, gold, 820, 125);
-        g.DrawString(battle.Message, message, text, 820, 150);
+        g.DrawString(heading, phase, gold, 800, 105);
+        g.DrawString(battle.Message, message, text, 800, 132);
     }
 
     private void DrawCommandWindow(Graphics g)
     {
-        Rectangle menu = new(500, 690, 920, 250);
+        Rectangle menu = new(500, 700, 920, 250);
         using SolidBrush panel = new(Color.FromArgb(245, 8, 9, 13));
         using Pen border = new(Color.FromArgb(175, 112, 91, 47), 3);
         using Font heading = new("Segoe UI", 11, FontStyle.Bold);
@@ -301,7 +346,7 @@ internal sealed class BattleOverlayControl : Control
 
         using Font hint = new("Segoe UI", 8.5f, FontStyle.Bold);
         using SolidBrush muted = new(UiTheme.Muted);
-        g.DrawString("1-5 SELECT    ↑/↓ MOVE    ENTER CONFIRM", hint, muted, menu.X + 24, menu.Bottom - 30);
+        g.DrawString("1-5 SELECT    ↑/↓ COMMAND    ←/→ TARGET    ENTER CONFIRM", hint, muted, menu.X + 24, menu.Bottom - 30);
     }
 
     private static void DrawBar(Graphics g, Rectangle rect, int value, int maximum)
