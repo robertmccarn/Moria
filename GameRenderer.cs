@@ -13,10 +13,11 @@ public sealed partial class Game
 {
     private const int RenderScale = 3;
     private const int WorldPixelWidth = 1696;
-    private const int WorldPixelHeight = 768;
+    private const int WorldPixelHeight = 640;
+    private const int WorldOffsetY = 64;
 
     private readonly AssetAtlas assets = new();
-    private readonly Camera2D camera = new(106, 48, 16);
+    private readonly Camera2D camera = new(106, 40, 16);
     private readonly UiRenderer uiRenderer = new();
     private Position lastRenderedPlayerPosition;
     private Direction playerFacing = Direction.Down;
@@ -174,7 +175,7 @@ public sealed partial class Game
         GraphicsState worldState = g.Save();
         try
         {
-            g.TranslateTransform((1920 - WorldPixelWidth) / 2f, 0);
+            g.TranslateTransform((1920 - WorldPixelWidth) / 2f, WorldOffsetY);
 
             if (lastRenderedPlayerPosition != player.Position)
             {
@@ -225,7 +226,7 @@ public sealed partial class Game
             {
                 Rectangle playerTile = camera.TileRectangle(player.Position);
                 DrawPlayerEnergy(g, playerTile);
-                assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 30), playerFacing, player.Alive);
+                assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 45), playerFacing, player.Alive);
             }
 
             if (runOver || victory) DrawDeathOverlay(g);
@@ -242,7 +243,7 @@ public sealed partial class Game
         Monster? monster = dungeon.MonsterAt(position);
         if (monster != null)
         {
-            int size = monster.IsBoss ? 56 : 30;
+            int size = monster.IsBoss ? 84 : 45;
             assets.DrawMonster(g, CenteredSpriteRect(rect, size), monster);
             DrawMonsterMarker(g, rect, monster);
             return;
@@ -250,9 +251,9 @@ public sealed partial class Game
 
         Tile tile = dungeon[position];
         if (tile.GearLoot.Count > 0)
-            assets.DrawGear(g, CenteredSpriteRect(rect, 28), tile.GearLoot[^1]);
+            assets.DrawGear(g, CenteredSpriteRect(rect, 42), tile.GearLoot[^1]);
         else if (tile.HasItem)
-            assets.DrawPotion(g, CenteredSpriteRect(rect, 28));
+            assets.DrawPotion(g, CenteredSpriteRect(rect, 42));
     }
 
     private static Color DepthBackgroundColor(int level)
@@ -278,33 +279,29 @@ public sealed partial class Game
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
     {
-        int size = monster.IsBoss ? 6 : 4;
+        int size = monster.IsBoss ? 12 : 9;
         using SolidBrush marker = new(Color.FromArgb(monster.IsBoss ? 235 : 205, 190, 45, 40));
-        g.FillEllipse(marker, tile.Right - size - 2, tile.Y + 2, size, size);
+        g.FillEllipse(marker, tile.Right - size - 3, tile.Y + 3, size, size);
     }
 
     private static void DrawPlayerEnergy(Graphics g, Rectangle tile)
     {
         using SolidBrush glow = new(Color.FromArgb(80, 75, 165, 205));
-        g.FillEllipse(glow, tile.X + 2, tile.Bottom - 7, tile.Width - 4, 5);
+        g.FillEllipse(glow, tile.X + 3, tile.Bottom - 15, tile.Width - 6, 12);
     }
 
     private void DrawDeathOverlay(Graphics g)
     {
         using SolidBrush shade = new(Color.FromArgb(190, 0, 0, 0));
         g.FillRectangle(shade, 0, 0, WorldPixelWidth, WorldPixelHeight);
-        using Font title = new("Segoe UI", 42, FontStyle.Bold);
-        using Font body = new("Segoe UI", 18, FontStyle.Bold);
+        using Font title = new("Segoe UI", 22, FontStyle.Bold);
+        using Font body = new("Segoe UI", 10, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         string heading = victory ? "MORIA CONQUERED" : "YOU DIED";
         string detail = victory ? $"Legacy Gold earned: {lastRunReward}" : $"Legacy Gold recovered: {lastRunReward}";
-        float headingX = (WorldPixelWidth - g.MeasureString(heading, title).Width) / 2f;
-        float detailX = (WorldPixelWidth - g.MeasureString(detail, body).Width) / 2f;
-        g.DrawString(heading, title, text, headingX, 285);
-        g.DrawString(detail, body, text, detailX, 350);
-        string hint = "N: New Run    ESC: Quit";
-        float hintX = (WorldPixelWidth - g.MeasureString(hint, body).Width) / 2f;
-        g.DrawString(hint, body, text, hintX, 395);
+        g.DrawString(heading, title, text, 214, 95);
+        g.DrawString(detail, body, text, 244, 132);
+        g.DrawString("N: New Run    ESC: Quit", body, text, 242, 154);
     }
 
     protected override void OnPaint(PaintEventArgs e)
