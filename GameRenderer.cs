@@ -224,7 +224,13 @@ public sealed partial class Game
 
             if (visibility.IsVisible(player.Position))
             {
-                Rectangle playerTile = camera.TileRectangle(player.Position);
+                float playerPixelX = (player.WorldPosition.X - camera.X) * camera.TileSize;
+                float playerPixelY = (player.WorldPosition.Y - camera.Y) * camera.TileSize;
+                Rectangle playerTile = new(
+                    (int)MathF.Round(playerPixelX),
+                    (int)MathF.Round(playerPixelY),
+                    camera.TileSize,
+                    camera.TileSize);
                 DrawPlayerEnergy(g, playerTile);
                 assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 45), playerFacing, player.Alive);
             }
