@@ -84,9 +84,6 @@ public sealed partial class Game
             DrawPlayerEnergy(g, playerTile);
             assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 15), playerFacing, player.Alive);
         }
-
-        if (runOver || victory)
-            DrawDeathOverlay(g);
     }
 
     private void DrawEntities(Graphics g, Position position, Rectangle rect)
@@ -140,19 +137,6 @@ public sealed partial class Game
     {
         using SolidBrush glow = new(Color.FromArgb(80, 75, 165, 205));
         g.FillEllipse(glow, tile.X + 1, tile.Bottom - 5, tile.Width - 2, 4);
-    }
-
-    private void DrawDeathOverlay(Graphics g)
-    {
-        using SolidBrush veil = new(Color.FromArgb(175, 0, 0, 0));
-        g.FillRectangle(veil, 0, 0, VirtualCanvas.Width, MapHeight);
-        using Font title = new("Segoe UI", 22, FontStyle.Bold);
-        using SolidBrush text = new(Color.Gainsboro);
-        using SolidBrush gold = new(Color.FromArgb(255, 215, 90));
-        g.DrawString(victory ? "MORIA CONQUERED" : "YOU DIED", title, victory ? gold : text, victory ? 232 : 265, 112);
-        using Font body = new("Segoe UI", 8, FontStyle.Bold);
-        g.DrawString(victory ? "BALROG SLAIN" : $"DEPTH {player.DungeonLevel}    +{LastRunReward} LEGACY GOLD", body, victory ? gold : text, 225, 140);
-        g.DrawString("ENTER / SPACE / N  NEW RUN", body, text, 235, 158);
     }
 
     protected override void OnPaint(PaintEventArgs e)
