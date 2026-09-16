@@ -60,7 +60,11 @@ public sealed partial class Game : Form
         };
 
         redrawTimer = new WinFormsTimer { Interval = 50 };
-        redrawTimer.Tick += (_, _) => Invalidate();
+        redrawTimer.Tick += (_, _) =>
+        {
+            ProcessRealTime();
+            Invalidate();
+        };
         redrawTimer.Start();
         Shown += (_, _) =>
         {
@@ -144,6 +148,7 @@ public sealed partial class Game : Form
         runOver = false;
         victory = false;
         chatLog.Clear();
+        ResetRealTimeClock();
         SetMessage($"Run {currentPlayer.RunsCompleted + 1} begins. Descend into Moria and survive.");
     }
 
@@ -169,21 +174,18 @@ public sealed partial class Game : Form
 
         if (!player.Alive) { EndRun(); return; }
 
-        bool consumesTurn = false;
         switch (action)
         {
-            case GameAction.MoveUp: MovePlayer(Direction.Up); consumesTurn = true; break;
-            case GameAction.MoveDown: MovePlayer(Direction.Down); consumesTurn = true; break;
-            case GameAction.MoveLeft: MovePlayer(Direction.Left); consumesTurn = true; break;
-            case GameAction.MoveRight: MovePlayer(Direction.Right); consumesTurn = true; break;
-            case GameAction.DrinkPotion: Drink(); consumesTurn = true; break;
-            case GameAction.Interact: consumesTurn = Interact(); break;
+            case GameAction.MoveUp: MovePlayer(Direction.Up); break;
+            case GameAction.MoveDown: MovePlayer(Direction.Down); break;
+            case GameAction.MoveLeft: MovePlayer(Direction.Left); break;
+            case GameAction.MoveRight: MovePlayer(Direction.Right); break;
+            case GameAction.DrinkPotion: Drink(); break;
+            case GameAction.Interact: Interact(); break;
             case GameAction.ChatLog: ShowChatLog(); break;
             case GameAction.Quit: running = false; Close(); return;
         }
 
-        if (running && player.Alive && consumesTurn && !victory)
-            MonstersAct();
         if (!player.Alive) EndRun();
         Invalidate();
     }
@@ -407,63 +409,5 @@ public sealed partial class Game : Form
         Focus();
     }
 
-    private static string RarityName(int rarity) => rarity switch { 1 => "Common", 2 => "Rare", 3 => "Epic", _ => "Legendary" };
-
-    private void SetMessage(string text)
-    {
-        message = text;
-        chatLog.Add(text);
-        if (chatLog.Count > 250) chatLog.RemoveAt(0);
-    }
-
-    private void EndRun()
-    {
-        if (runOver || victory) return;
-        runOver = true;
-        player.RunsCompleted++;
-        lastRunReward = Math.Max(10, player.Gold / 3 + player.DungeonLevel * 10);
-        player.PermanentGold += lastRunReward;
-        SaveLegacyGold();
-        SetMessage($"You fell in dungeon level {player.DungeonLevel}. +{lastRunReward} Legacy Gold.");
-    }
-
-    private void WinRun()
-    {
-        if (victory || runOver) return;
-        victory = true;
-        player.RunsCompleted++;
-        lastRunReward = Math.Max(250, player.Gold + player.DungeonLevel * 25);
-        player.PermanentGold += lastRunReward;
-        SaveLegacyGold();
-        SetMessage("The Balrog falls. Moria has been conquered!");
-    }
-
-    private void StartFreshRun()
-    {
-        int legacy = player.PermanentGold;
-        player = new Player(player.Name, new Position(1, 1), legacy);
-        StartRun(player);
-        SetMessage($"New run begins. Legacy Gold: {legacy}.");
-        Focus();
-        Invalidate();
-    }
-
-    private long LoadLegacyGold()
-    {
-        try
-        {
-            if (!File.Exists(MetaFile)) return 0;
-            string value = File.ReadAllText(MetaFile).Split('|')[0];
-            return long.TryParse(value, out long gold) ? Math.Max(0, gold) : 0;
-        }
-        catch { return 0; }
-    }
-
-    private void SaveLegacyGold() => File.WriteAllText(MetaFile, $"{player.PermanentGold}|{player.RunsCompleted}");
-
-    private void SaveProgress()
-    {
-        File.WriteAllText("moria.sav", string.Join('|', player.Name, player.Level, player.Experience, player.Hp, player.TotalMaxHp, player.Gold, player.DungeonLevel, player.PermanentGold));
-        SaveLegacyGold();
-    }
+    private static string RarityName(int rarity) => rarity switch { 1 => "Worn", 2 => "Fine", 3 => "Runed", _ => "Mythic" };
 }
