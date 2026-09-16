@@ -16,6 +16,35 @@ public sealed partial class Game
     private BattleOverlayControl? battleOverlay;
     private int battleMenuIndex;
 
+    private void ProcessMonsterTurn()
+    {
+        foreach (Monster monster in dungeon.Monsters.Where(m => m.Alive).ToList())
+        {
+            if (monster.IsBoss && monster.Position == dungeon.DownStairs)
+                continue;
+
+            int dy = player.Position.Y - monster.Position.Y;
+            int dx = player.Position.X - monster.Position.X;
+            if (Math.Abs(dy) + Math.Abs(dx) > 10)
+                continue;
+
+            Position target = monster.Position;
+            if (Math.Abs(dy) >= Math.Abs(dx))
+                target = new Position(target.Y + Math.Sign(dy), target.X);
+            else
+                target = new Position(target.Y, target.X + Math.Sign(dx));
+
+            if (target == player.Position)
+            {
+                BeginBattle(monster);
+                return;
+            }
+
+            if (dungeon.IsWalkable(target) && dungeon.MonsterAt(target) == null)
+                monster.Position = target;
+        }
+    }
+
     protected override void OnCreateControl()
     {
         base.OnCreateControl();
@@ -199,7 +228,7 @@ internal sealed class BattleOverlayControl : Control
         DrawEnemy(g, battle);
         DrawPlayer(g, battle);
         DrawStatus(g, battle);
-        DrawCommandWindow(g, battle);
+        DrawCommandWindow(g);
     }
 
     private void DrawEnemy(Graphics g, TurnBasedBattle battle)
@@ -210,8 +239,9 @@ internal sealed class BattleOverlayControl : Control
         using Font name = new("Segoe UI", 16, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         using SolidBrush muted = new(Color.FromArgb(170, 175, 185));
+        using Font details = new("Segoe UI", 11, FontStyle.Bold);
         g.DrawString(battle.Enemy.Name.ToUpperInvariant(), name, text, 395, 460);
-        g.DrawString($"LV {battle.Enemy.Level}    HP {Math.Max(0, battle.Enemy.Hp)}", new Font("Segoe UI", 11, FontStyle.Bold), muted, 395, 487);
+        g.DrawString($"LV {battle.Enemy.Level}    HP {Math.Max(0, battle.Enemy.Hp)}", details, muted, 395, 487);
         DrawBar(g, new Rectangle(395, 515, 330, 16), battle.Enemy.Hp, Math.Max(1, battle.Enemy.MaxHp));
     }
 
@@ -223,32 +253,32 @@ internal sealed class BattleOverlayControl : Control
         using Font name = new("Segoe UI", 16, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         using SolidBrush muted = new(Color.FromArgb(170, 175, 185));
+        using Font details = new("Segoe UI", 11, FontStyle.Bold);
         g.DrawString(battle.Player.Name.ToUpperInvariant(), name, text, 1065, 460);
-        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", new Font("Segoe UI", 11, FontStyle.Bold), muted, 1065, 487);
+        g.DrawString($"LV {battle.Player.Level}    HP {Math.Max(0, battle.Player.Hp)}/{battle.Player.TotalMaxHp}", details, muted, 1065, 487);
         DrawBar(g, new Rectangle(1065, 515, 330, 16), battle.Player.Hp, Math.Max(1, battle.Player.TotalMaxHp));
     }
 
     private static void DrawStatus(Graphics g, TurnBasedBattle battle)
     {
         using Font phase = new("Segoe UI", 11, FontStyle.Bold);
+        using Font message = new("Segoe UI", 10, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
         using SolidBrush text = new(UiTheme.Text);
         string heading = battle.Phase == BattlePhase.PlayerTurn ? "YOUR TURN" : "ENEMY TURN";
         g.DrawString(heading, phase, gold, 820, 125);
-        using Font message = new("Segoe UI", 10, FontStyle.Bold);
         g.DrawString(battle.Message, message, text, 820, 150);
     }
 
-    private void DrawCommandWindow(Graphics g, TurnBasedBattle battle)
+    private void DrawCommandWindow(Graphics g)
     {
         Rectangle menu = new(500, 690, 920, 250);
         using SolidBrush panel = new(Color.FromArgb(245, 8, 9, 13));
         using Pen border = new(Color.FromArgb(175, 112, 91, 47), 3);
-        g.FillRectangle(panel, menu);
-        g.DrawRectangle(border, menu);
-
         using Font heading = new("Segoe UI", 11, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
+        g.FillRectangle(panel, menu);
+        g.DrawRectangle(border, menu);
         g.DrawString("COMMAND", heading, gold, menu.X + 24, menu.Y + 18);
 
         for (int i = 0; i < MenuLabels.Length; i++)
