@@ -3,120 +3,92 @@ using Moria.Items;
 
 namespace Moria.Combat;
 
-public enum BattlePhase
-{
-    PlayerTurn,
-    EnemyTurn,
-    Victory,
-    Defeat,
-    Fled
-}
-
-public enum BattleAction
-{
-    Attack,
-    PowerStrike,
-    Potion,
-    Defend,
-    Flee
-}
+public enum BattlePhase { PlayerTurn, EnemyTurn, Victory, Defeat, Fled }
+public enum BattleAction { Attack, PowerStrike, Potion, Defend, Flee }
 
 public sealed class TurnBasedBattle
 {
     private readonly CombatSystem combat;
     private readonly Random random;
     private bool defending;
+    private int targetIndex;
 
     public Player Player { get; }
-    public Monster Enemy { get; }
+    public IReadOnlyList<Monster> Enemies { get; }
+    public Monster Enemy => CurrentEnemy;
+    public Monster CurrentEnemy => Enemies[Math.Clamp(targetIndex, 0, Enemies.Count - 1)];
+    public int TargetIndex => targetIndex;
     public BattlePhase Phase { get; private set; } = BattlePhase.PlayerTurn;
     public string Message { get; private set; } = "Choose an action.";
     public bool Finished => Phase is BattlePhase.Victory or BattlePhase.Defeat or BattlePhase.Fled;
+    public bool AllEnemiesDefeated => Enemies.All(e => !e.Alive);
 
-    public TurnBasedBattle(Player player, Monster enemy, CombatSystem combat, Random random)
+    public TurnBasedBattle(Player player, IEnumerable<Monster> enemies, CombatSystem combat, Random random)
     {
         Player = player;
-        Enemy = enemy;
         this.combat = combat;
         this.random = random;
+        Enemies = enemies.Where(e => e.Alive).Distinct().ToList();
+        if (Enemies.Count == 0) throw new ArgumentException("A battle requires at least one living enemy.", nameof(enemies));
+    }
+
+    public void CycleTarget(int direction)
+    {
+        if (Finished || Phase != BattlePhase.PlayerTurn || Enemies.Count == 0) return;
+        int start = targetIndex;
+        do
+        {
+            targetIndex = (targetIndex + Math.Sign(direction) + Enemies.Count) % Enemies.Count;
+            if (Enemies[targetIndex].Alive) return;
+        } while (targetIndex != start);
     }
 
     public void Execute(BattleAction action)
     {
-        if (Finished || Phase != BattlePhase.PlayerTurn)
-            return;
-
+        if (Finished || Phase != BattlePhase.PlayerTurn) return;
         switch (action)
         {
-            case BattleAction.Attack:
-                Attack();
-                break;
-            case BattleAction.PowerStrike:
-                PowerStrike();
-                break;
-            case BattleAction.Potion:
-                Potion();
-                break;
-            case BattleAction.Defend:
-                defending = true;
-                Message = "You raise your guard.";
-                EnemyTurn();
-                break;
-            case BattleAction.Flee:
-                Flee();
-                break;
+            case BattleAction.Attack: Attack(); break;
+            case BattleAction.PowerStrike: PowerStrike(); break;
+            case BattleAction.Potion: Potion(); break;
+            case BattleAction.Defend: defending = true; Message = "You raise your guard."; EnemyTurn(); break;
+            case BattleAction.Flee: Flee(); break;
         }
     }
 
     private void Attack()
     {
-        CombatResult result = combat.PlayerAttack(Player, Enemy, random);
+        Monster target = CurrentEnemy;
+        CombatResult result = combat.PlayerAttack(Player, target, random);
         Message = result.Hit
-            ? result.Critical ? $"CRITICAL HIT! {result.Damage} damage." : $"You strike for {result.Damage} damage."
-            : "Your attack misses.";
-        if (result.Defeated)
-        {
-            Phase = BattlePhase.Victory;
-            Message += $" {Enemy.Name} is defeated!";
-            return;
-        }
+            ? result.Critical ? $"CRITICAL HIT! {target.Name} takes {result.Damage} damage." : $"You strike {target.Name} for {result.Damage} damage."
+            : $"Your attack misses {target.Name}.";
+        if (AllEnemiesDefeated) { Phase = BattlePhase.Victory; Message += " All enemies are defeated!"; return; }
         EnemyTurn();
     }
 
     private void PowerStrike()
     {
-        int attackBonus = Math.Max(2, Player.TotalAttack / 2);
-        bool hit = random.Next(1, 21) + Player.TotalAttack + attackBonus >= Enemy.ArmorClass;
-        if (!hit)
+        Monster target = CurrentEnemy;
+        int bonus = Math.Max(2, Player.TotalAttack / 2);
+        if (random.Next(1, 21) + Player.TotalAttack + bonus < target.ArmorClass)
         {
-            Message = "POWER STRIKE misses!";
+            Message = $"POWER STRIKE misses {target.Name}!";
             EnemyTurn();
             return;
         }
-
-        int damage = random.Next(5, 11) + Player.TotalAttack + attackBonus;
-        if (random.Next(100) < 10 + Player.Dexterity / 4)
-            damage *= 2;
-        Enemy.Hp -= damage;
-        Message = $"POWER STRIKE! {damage} damage.";
-        if (!Enemy.Alive)
-        {
-            Phase = BattlePhase.Victory;
-            Message += $" {Enemy.Name} is defeated!";
-            return;
-        }
+        int damage = random.Next(5, 11) + Player.TotalAttack + bonus;
+        if (random.Next(100) < 10 + Player.Dexterity / 4) damage *= 2;
+        target.Hp -= damage;
+        Message = $"POWER STRIKE! {target.Name} takes {damage} damage.";
+        if (AllEnemiesDefeated) { Phase = BattlePhase.Victory; Message += " All enemies are defeated!"; return; }
         EnemyTurn();
     }
 
     private void Potion()
     {
         Item? potion = Player.Inventory.FirstOrDefault(i => i.Kind == ItemKind.Potion);
-        if (potion == null)
-        {
-            Message = "You have no healing potions.";
-            return;
-        }
-
+        if (potion == null) { Message = "You have no healing potions."; return; }
         Player.Inventory.Remove(potion);
         int healed = Player.TotalMaxHp - Player.Hp;
         Player.Hp = Player.TotalMaxHp;
@@ -126,21 +98,9 @@ public sealed class TurnBasedBattle
 
     private void Flee()
     {
-        if (Enemy.IsBoss)
-        {
-            Message = "There is no escape from this foe!";
-            EnemyTurn();
-            return;
-        }
-
+        if (Enemies.Any(e => e.IsBoss && e.Alive)) { Message = "There is no escape from this group!"; EnemyTurn(); return; }
         int chance = Math.Clamp(45 + Player.Dexterity * 3, 45, 85);
-        if (random.Next(100) < chance)
-        {
-            Phase = BattlePhase.Fled;
-            Message = "You escape from the battle.";
-            return;
-        }
-
+        if (random.Next(100) < chance) { Phase = BattlePhase.Fled; Message = "You escape from the battle."; return; }
         Message = "You fail to escape!";
         EnemyTurn();
     }
@@ -148,35 +108,35 @@ public sealed class TurnBasedBattle
     private void EnemyTurn()
     {
         Phase = BattlePhase.EnemyTurn;
-        CombatResult result = combat.MonsterAttack(Player, Enemy, random);
-        if (result.Hit)
+        List<string> attacks = new();
+        foreach (Monster enemy in Enemies.Where(e => e.Alive).ToList())
         {
-            int damage = result.Damage;
-            if (defending)
+            CombatResult result = combat.MonsterAttack(Player, enemy, random);
+            if (result.Hit)
             {
-                int blocked = Math.Max(1, damage / 2);
-                Player.Hp += blocked;
-                damage -= blocked;
-                Message += $" {Enemy.Name} attacks. Guard blocks {blocked} damage. {damage} gets through.";
+                int damage = result.Damage;
+                if (defending)
+                {
+                    int blocked = Math.Max(1, damage / 2);
+                    Player.Hp += blocked;
+                    damage -= blocked;
+                    attacks.Add($"{enemy.Name} hits for {damage} ({blocked} blocked)");
+                }
+                else attacks.Add($"{enemy.Name} hits for {damage}");
             }
-            else
-            {
-                Message += $" {Enemy.Name} hits you for {damage} damage.";
-            }
+            else attacks.Add($"{enemy.Name} misses");
+            if (!Player.Alive) { Phase = BattlePhase.Defeat; Message = string.Join(". ", attacks) + ". You fall."; return; }
         }
-        else
-        {
-            Message += $" {Enemy.Name} misses.";
-        }
-
         defending = false;
-        if (!Player.Alive)
-        {
-            Phase = BattlePhase.Defeat;
-            Message += " You fall.";
-            return;
-        }
-
         Phase = BattlePhase.PlayerTurn;
+        Message = attacks.Count == 0 ? "The enemies hesitate." : string.Join(". ", attacks) + ". Your turn.";
+        EnsureLivingTarget();
+    }
+
+    private void EnsureLivingTarget()
+    {
+        if (Enemies[targetIndex].Alive) return;
+        int start = targetIndex;
+        do { targetIndex = (targetIndex + 1) % Enemies.Count; if (Enemies[targetIndex].Alive) return; } while (targetIndex != start);
     }
 }
