@@ -324,7 +324,7 @@ internal sealed class BattleOverlayControl : Control
         DrawAnimation(g, battle);
     }
 
-    private static void DrawBattleBackdrop(Graphics g)
+    private void DrawBattleBackdrop(Graphics g)
     {
         using SolidBrush sky = new(Color.FromArgb(12, 27, 55));
         using SolidBrush ground = new(Color.FromArgb(8, 14, 27));
@@ -414,129 +414,137 @@ internal sealed class BattleOverlayControl : Control
 
         using Font heading = new("Segoe UI", 11, FontStyle.Bold);
         using SolidBrush gold = new(UiTheme.Gold);
-        g.DrawString("COMMAND", heading, gold, menu.X + 28, menu.Y + 20);
+        g.DrawString("COMMAND", heading, gold, menu.X + 26, menu.Y + 20);
 
         for (int i = 0; i < MenuLabels.Length; i++)
         {
-            int x = menu.X + 38 + (i % 2) * 520;
-            int y = menu.Y + 68 + (i / 2) * 62;
+            int x = menu.X + 38 + (i % 2) * 500;
+            int y = menu.Y + 68 + (i / 2) * 58;
             bool selected = i == game.BattleMenuIndex;
             if (selected)
             {
-                using SolidBrush highlight = new(Color.FromArgb(95, 43, 72, 120));
-                g.FillRectangle(highlight, x - 15, y - 7, 445, 40);
-                using Pen cursor = new(Color.FromArgb(235, 221, 190), 3);
-                g.DrawLine(cursor, x - 10, y + 11, x - 2, y + 3);
-                g.DrawLine(cursor, x - 10, y + 11, x - 2, y + 19);
+                using SolidBrush highlight = new(Color.FromArgb(100, 40, 83, 125));
+                g.FillRectangle(highlight, x - 12, y - 6, 440, 39);
             }
 
             using SolidBrush number = new(UiTheme.Gold);
-            using SolidBrush label = new(selected ? Color.White : Color.FromArgb(188, 202, 225));
+            using SolidBrush label = new(selected ? Color.White : Color.FromArgb(190, 201, 218));
             g.DrawString($"{i + 1}", heading, number, x, y);
             g.DrawString(MenuLabels[i], heading, label, x + 30, y);
         }
 
         using Font hint = new("Segoe UI", 8.5f, FontStyle.Bold);
-        using SolidBrush muted = new(Color.FromArgb(145, 165, 195));
-        g.DrawString("1-5 COMMAND    ↑/↓ SELECT    ←/→ TARGET    ENTER CONFIRM", hint, muted, menu.X + 28, menu.Bottom - 30);
+        using SolidBrush muted = new(UiTheme.Muted);
+        g.DrawString("1-5 SELECT    ↑/↓ COMMAND    ←/→ TARGET    ENTER CONFIRM", hint, muted, menu.X + 26, menu.Bottom - 28);
+    }
+
+    private static void DrawWindow(Graphics g, Rectangle rectangle, Color fill)
+    {
+        using SolidBrush brush = new(fill);
+        using Pen outer = new(Color.FromArgb(105, 130, 160), 3);
+        using Pen inner = new(Color.FromArgb(35, 54, 82), 1);
+        g.FillRectangle(brush, rectangle);
+        g.DrawRectangle(outer, rectangle);
+        Rectangle inset = Rectangle.Inflate(rectangle, -7, -7);
+        g.DrawRectangle(inner, inset);
     }
 
     private void DrawAnimation(Graphics g, TurnBasedBattle battle)
     {
-        if (!IsAnimating)
+        if (!IsAnimating || animationBattle != battle)
             return;
 
-        if (animationPlayerPhase && animationAction is BattleAction.Attack or BattleAction.PowerStrike)
+        if (animationPlayerPhase)
         {
             Monster target = battle.CurrentEnemy;
-            Point playerCenter = new(1525, 200);
-            int index = battle.TargetIndex;
-            Point enemyCenter = EnemyCenter(index);
-            float t = Math.Clamp(animationFrame / 22f, 0f, 1f);
-            Point p = new((int)(playerCenter.X + (enemyCenter.X - playerCenter.X) * t), (int)(playerCenter.Y + (enemyCenter.Y - playerCenter.Y) * t));
+            Point start = new(1525, 290);
+            Rectangle targetRect = GetEnemySpriteRectangle(target, battle);
+            Point end = new(targetRect.X + targetRect.Width / 2, targetRect.Y + targetRect.Height / 2);
+            DrawProjectile(g, start, end, animationFrame / 22f, Color.FromArgb(245, 222, 169));
 
-            using Pen streak = new(Color.FromArgb(230, 230, 235, 255), 8);
-            g.DrawLine(streak, playerCenter, p);
-            using SolidBrush impact = new(Color.FromArgb(210, 245, 245, 255));
-            int radius = 8 + (animationFrame % 5) * 3;
-            g.FillEllipse(impact, p.X - radius, p.Y - radius, radius * 2, radius * 2);
-
-            int damage = animationDamage.GetValueOrDefault(target);
-            if (damage > 0)
-                DrawDamageNumber(g, damage, enemyCenter, animationFrame);
+            if (animationFrame >= 16)
+            {
+                int damage = animationDamage.GetValueOrDefault(target);
+                DrawImpact(g, end, animationFrame - 16);
+                DrawDamageNumber(g, end, damage, animationFrame - 16);
+            }
         }
         else
         {
-            List<Monster> attackers = battle.Enemies.Where(enemy => animationDamage.GetValueOrDefault(enemy) > 0).ToList();
+            List<Monster> attackers = animationBattle.Enemies
+                .Where(enemy => animationDamage.GetValueOrDefault(enemy) > 0)
+                .ToList();
+
             if (animationEnemyIndex < attackers.Count)
             {
                 Monster attacker = attackers[animationEnemyIndex];
-                int index = 0;
-                for (; index < battle.Enemies.Count; index++)
+                Rectangle sourceRect = GetEnemySpriteRectangle(attacker, battle);
+                Point start = new(sourceRect.X + sourceRect.Width / 2, sourceRect.Y + sourceRect.Height / 2);
+                Point end = new(1525, 200);
+                DrawProjectile(g, start, end, animationFrame / 18f, Color.FromArgb(215, 115, 106));
+                if (animationFrame >= 12)
                 {
-                    if (ReferenceEquals(battle.Enemies[index], attacker))
-                        break;
+                    DrawImpact(g, end, animationFrame - 12);
+                    DrawDamageNumber(g, end, animationPlayerDamage, animationFrame - 12);
                 }
-
-                Point enemyCenter = EnemyCenter(index);
-                Point playerCenter = new(1525, 200);
-                float t = Math.Clamp(animationFrame / 18f, 0f, 1f);
-                Point p = new((int)(enemyCenter.X + (playerCenter.X - enemyCenter.X) * t), (int)(enemyCenter.Y + (playerCenter.Y - enemyCenter.Y) * t));
-
-                using Pen streak = new(Color.FromArgb(230, 220, 235, 255), 7);
-                g.DrawLine(streak, enemyCenter, p);
-                using SolidBrush impact = new(Color.FromArgb(215, 255, 235, 235));
-                int radius = 7 + (animationFrame % 4) * 3;
-                g.FillEllipse(impact, p.X - radius, p.Y - radius, radius * 2, radius * 2);
-                DrawDamageNumber(g, animationDamage[attacker], playerCenter, animationFrame);
-            }
-            else if (animationPlayerDamage > 0)
-            {
-                DrawDamageNumber(g, animationPlayerDamage, new Point(1525, 200), animationFrame);
             }
         }
     }
 
-    private static Point EnemyCenter(int index)
+    private Rectangle GetEnemySpriteRectangle(Monster enemy, TurnBasedBattle battle)
     {
+        int index = battle.Enemies.IndexOf(enemy);
         int column = index % 3;
         int row = index / 3;
-        return new Point(275 + column * 315, row == 0 ? 150 : 360);
+        int x = 130 + column * 315;
+        int y = row == 0 ? 75 : 285;
+        return new Rectangle(x + 65, y + 4, 160, 160);
     }
 
-    private static void DrawDamageNumber(Graphics g, int damage, Point center, int frame)
+    private static void DrawProjectile(Graphics g, Point start, Point end, float progress, Color color)
     {
+        progress = Math.Clamp(progress, 0f, 1f);
+        Point point = new(
+            start.X + (int)((end.X - start.X) * progress),
+            start.Y + (int)((end.Y - start.Y) * progress));
+        using Pen trail = new(Color.FromArgb(190, color), 5);
+        g.DrawLine(trail, start, point);
+        using SolidBrush core = new(color);
+        g.FillRectangle(core, point.X - 5, point.Y - 5, 10, 10);
+    }
+
+    private static void DrawImpact(Graphics g, Point center, int frame)
+    {
+        int radius = 10 + frame * 5;
+        using Pen ring = new(Color.FromArgb(Math.Max(30, 210 - frame * 22), 235, 216, 150), 4);
+        g.DrawEllipse(ring, center.X - radius, center.Y - radius, radius * 2, radius * 2);
+    }
+
+    private static void DrawDamageNumber(Graphics g, Point center, int damage, int frame)
+    {
+        if (damage <= 0)
+            return;
+
         using Font font = new("Segoe UI", 18, FontStyle.Bold);
-        using SolidBrush shadow = new(Color.Black);
+        using SolidBrush shadow = new(Color.FromArgb(210, 0, 0, 0));
         using SolidBrush text = new(Color.White);
-        float y = center.Y - 25 - frame * 1.5f;
+        int y = center.Y - 35 - frame * 2;
         string value = $"-{damage}";
-        g.DrawString(value, font, shadow, center.X - 18, y + 2);
+        g.DrawString(value, font, shadow, center.X - 20 + 2, y + 2);
         g.DrawString(value, font, text, center.X - 20, y);
-    }
-
-    private static void DrawWindow(Graphics g, Rectangle rect, Color fill)
-    {
-        using SolidBrush panel = new(fill);
-        using Pen outer = new(Color.FromArgb(230, 170, 190, 220), 3);
-        using Pen inner = new(Color.FromArgb(105, 70, 95, 130), 1);
-        g.FillRectangle(panel, rect);
-        g.DrawRectangle(outer, rect);
-        Rectangle innerRect = new(rect.X + 7, rect.Y + 7, rect.Width - 14, rect.Height - 14);
-        g.DrawRectangle(inner, innerRect);
     }
 
     private static void DrawBar(Graphics g, Rectangle rect, int value, int maximum)
     {
-        using SolidBrush background = new(Color.FromArgb(35, 47, 68));
-        using Pen border = new(Color.FromArgb(150, 110, 130, 155));
+        using SolidBrush background = new(Color.FromArgb(25, 37, 55));
+        using Pen border = new(Color.FromArgb(100, 126, 153), 1);
         g.FillRectangle(background, rect);
         g.DrawRectangle(border, rect);
         int width = Math.Clamp(rect.Width * Math.Max(0, value) / Math.Max(1, maximum), 0, rect.Width);
         if (width > 0)
         {
-            using SolidBrush fill = new(Color.FromArgb(205, 70, 150, 82));
-            g.FillRectangle(fill, rect.X + 1, rect.Y + 1, Math.Max(1, width - 1), rect.Height - 2);
+            using SolidBrush fill = new(UiTheme.Hp);
+            g.FillRectangle(fill, rect.X + 1, rect.Y + 1, Math.Max(1, width - 1), Math.Max(1, rect.Height - 1));
         }
     }
 }
