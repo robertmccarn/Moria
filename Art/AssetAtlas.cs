@@ -9,15 +9,18 @@ namespace Moria.Art;
 
 public sealed class AssetAtlas : IDisposable
 {
+    private readonly Bitmap tiles;
     private readonly Bitmap warrior;
     private readonly Bitmap monsters;
     private readonly Bitmap items;
     private readonly Dictionary<string, Bitmap> cache = new();
+    private readonly Dictionary<string, Bitmap> tileCache = new();
 
     private static string AssetPath(string file) => Path.Combine(AppContext.BaseDirectory, "assets", file);
 
     public AssetAtlas()
     {
+        tiles = new Bitmap(AssetPath("tiles.png"));
         warrior = new Bitmap(AssetPath("warrior.png"));
         monsters = new Bitmap(AssetPath("mosters.png"));
         items = new Bitmap(AssetPath("items.png"));
@@ -31,30 +34,37 @@ public sealed class AssetAtlas : IDisposable
             return;
         }
 
-        // Keep the existing environmental sprites for walls, doors, stairs, and traps.
-        // Floors intentionally use a temporary generated block while the final floor art is developed.
-        using SolidBrush fill = new(TileColor(type));
-        g.FillRectangle(fill, destination);
+        Rectangle source = type switch
+        {
+            TileType.Wall => WallRect(Math.Abs(x * 3 + y) % 8),
+            TileType.Door => new Rectangle(25, 473, 60, 60),
+            TileType.StairsUp => new Rectangle(500, 473, 60, 60),
+            TileType.StairsDown => new Rectangle(580, 473, 60, 60),
+            TileType.Trap => new Rectangle(870, 473, 60, 60),
+            _ => new Rectangle(1360, 135, 60, 60)
+        };
+
+        string key = $"tile:{type}:{source.X}:{source.Y}:{destination.Width}:{destination.Height}";
+        if (!tileCache.TryGetValue(key, out Bitmap? sprite))
+        {
+            sprite = ExtractScaledSprite(tiles, source, destination.Width, destination.Height);
+            tileCache[key] = sprite;
+        }
+
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImageUnscaled(sprite, destination.X, destination.Y);
     }
 
     private static void DrawFloorBlock(Graphics g, Rectangle destination, int x, int y)
     {
-        // Temporary neutral stone floor: solid grey with a subtle inset edge so floor/wall boundaries remain readable.
         using SolidBrush fill = new(Color.FromArgb(92, 94, 98));
         g.FillRectangle(fill, destination);
         using Pen edge = new(Color.FromArgb(112, 114, 118));
         g.DrawRectangle(edge, destination.X, destination.Y, destination.Width - 1, destination.Height - 1);
     }
 
-    private static Color TileColor(TileType type) => type switch
-    {
-        TileType.Wall => Color.FromArgb(38, 40, 44),
-        TileType.Door => Color.FromArgb(125, 104, 72),
-        TileType.StairsUp => Color.FromArgb(88, 116, 132),
-        TileType.StairsDown => Color.FromArgb(132, 86, 72),
-        TileType.Trap => Color.FromArgb(106, 70, 70),
-        _ => Color.FromArgb(20, 22, 25)
-    };
+    private static Rectangle WallRect(int index) => new(680 + index * 80, 135, 64, 64);
 
     public void DrawPlayer(Graphics g, Rectangle destination, Direction facing, bool alive)
     {
@@ -146,6 +156,16 @@ public sealed class AssetAtlas : IDisposable
         return crop;
     }
 
+    private static Bitmap ExtractScaledSprite(Bitmap sheet, Rectangle source, int width, int height)
+    {
+        Bitmap sprite = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using Graphics g = Graphics.FromImage(sprite);
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImage(sheet, new Rectangle(0, 0, width, height), source, GraphicsUnit.Pixel);
+        return sprite;
+    }
+
     private static Color Bilinear(Color tl, Color tr, Color bl, Color br, double u, double v)
     {
         double r = tl.R * (1 - u) * (1 - v) + tr.R * u * (1 - v) + bl.R * (1 - u) * v + br.R * u * v;
@@ -163,7 +183,10 @@ public sealed class AssetAtlas : IDisposable
     public void Dispose()
     {
         foreach (Bitmap bitmap in cache.Values) bitmap.Dispose();
+        foreach (Bitmap bitmap in tileCache.Values) bitmap.Dispose();
         cache.Clear();
+        tileCache.Clear();
+        tiles.Dispose();
         warrior.Dispose();
         monsters.Dispose();
         items.Dispose();
