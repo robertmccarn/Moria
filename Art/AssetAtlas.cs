@@ -53,6 +53,7 @@ public sealed class AssetAtlas : IDisposable
 
     public void DrawPlayer(Graphics g, Rectangle destination, Direction facing, bool alive)
     {
+        destination = FitSprite(destination, 30);
         if (!alive)
         {
             DrawSprite(g, warrior, new Rectangle(1280, 125, 170, 100), destination, "warrior:dead");
@@ -74,6 +75,7 @@ public sealed class AssetAtlas : IDisposable
 
     public void DrawMonster(Graphics g, Rectangle destination, Monster monster)
     {
+        destination = FitSprite(destination, 28);
         int panel = monster.Name switch
         {
             "Kobold" => 0,
@@ -102,7 +104,7 @@ public sealed class AssetAtlas : IDisposable
 
     public void DrawPotion(Graphics g, Rectangle destination)
     {
-        DrawSprite(g, items, new Rectangle(28, 140, 70, 90), destination, "potion");
+        DrawSprite(g, items, new Rectangle(28, 140, 70, 90), FitSprite(destination, 24), "potion");
     }
 
     public void DrawGear(Graphics g, Rectangle destination, Gear gear)
@@ -114,7 +116,17 @@ public sealed class AssetAtlas : IDisposable
             GearSlot.Ring => new Rectangle(680, 335, 75, 85),
             _ => new Rectangle(25, 335, 80, 85)
         };
-        DrawSprite(g, items, source, destination, $"gear:{gear.Slot}");
+        DrawSprite(g, items, source, FitSprite(destination, 25), $"gear:{gear.Slot}");
+    }
+
+    private static Rectangle FitSprite(Rectangle destination, int maxSize)
+    {
+        int size = Math.Min(maxSize, Math.Min(destination.Width, destination.Height));
+        return new Rectangle(
+            destination.X + (destination.Width - size) / 2,
+            destination.Y + (destination.Height - size) / 2,
+            size,
+            size);
     }
 
     private static Rectangle FloorRect(int index) => new(25 + index * 80, 135, 64, 64);
