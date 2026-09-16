@@ -11,31 +11,55 @@ namespace Moria;
 
 public sealed partial class Game
 {
+    private const int RenderScale = 3;
+    private const int WorldPixelWidth = 1696;
+    private const int WorldPixelHeight = 768;
+
     private readonly AssetAtlas assets = new();
-    private readonly VirtualCanvas virtualCanvas = new();
-    private readonly Camera2D camera = new(53, 21, 12);
+    private readonly Camera2D camera = new(106, 48, 16);
     private readonly UiRenderer uiRenderer = new();
     private Position lastRenderedPlayerPosition;
     private Direction playerFacing = Direction.Down;
 
     private void DrawFrame(Graphics target)
     {
-        using Bitmap frame = virtualCanvas.CreateBitmap();
-        using (Graphics g = Graphics.FromImage(frame))
-        {
-            g.SmoothingMode = SmoothingMode.None;
-            g.InterpolationMode = InterpolationMode.NearestNeighbor;
-            g.PixelOffsetMode = PixelOffsetMode.Half;
+        target.Clear(Color.Black);
+        target.SmoothingMode = SmoothingMode.None;
+        target.InterpolationMode = InterpolationMode.NearestNeighbor;
+        target.PixelOffsetMode = PixelOffsetMode.Half;
 
-            if (!started)
-                DrawTitleScreen(g);
-            else
-            {
-                DrawWorld(g);
-                uiRenderer.Draw(g, player, message, runOver, victory, lastRunReward);
-            }
+        if (!started)
+        {
+            DrawScaledLogicalScreen(target, DrawTitleScreen);
+            return;
         }
-        virtualCanvas.Present(target, frame);
+
+        DrawWorld(target);
+
+        GraphicsState state = target.Save();
+        try
+        {
+            target.ScaleTransform(RenderScale, RenderScale);
+            uiRenderer.Draw(target, player, message, runOver, victory, lastRunReward);
+        }
+        finally
+        {
+            target.Restore(state);
+        }
+    }
+
+    private static void DrawScaledLogicalScreen(Graphics target, Action<Graphics> draw)
+    {
+        GraphicsState state = target.Save();
+        try
+        {
+            target.ScaleTransform(RenderScale, RenderScale);
+            draw(target);
+        }
+        finally
+        {
+            target.Restore(state);
+        }
     }
 
     private void DrawTitleScreen(Graphics g)
@@ -147,59 +171,69 @@ public sealed partial class Game
         camera.Follow(player.Position, dungeon.Width, dungeon.Height);
         g.Clear(DepthBackgroundColor(player.DungeonLevel));
 
-        if (lastRenderedPlayerPosition != player.Position)
+        GraphicsState worldState = g.Save();
+        try
         {
-            int dx = player.Position.X - lastRenderedPlayerPosition.X;
-            int dy = player.Position.Y - lastRenderedPlayerPosition.Y;
-            if (Math.Abs(dx) >= Math.Abs(dy) && dx != 0)
-                playerFacing = dx > 0 ? Direction.Right : Direction.Left;
-            else if (dy != 0)
-                playerFacing = dy > 0 ? Direction.Down : Direction.Up;
-            lastRenderedPlayerPosition = player.Position;
-        }
+            g.TranslateTransform((1920 - WorldPixelWidth) / 2f, 0);
 
-        int minX = camera.X;
-        int maxX = Math.Min(dungeon.Width - 1, camera.X + camera.ViewWidthTiles - 1);
-        int minY = camera.Y;
-        int maxY = Math.Min(dungeon.Height - 1, camera.Y + camera.ViewHeightTiles - 1);
-
-        for (int y = minY; y <= maxY; y++)
-        for (int x = minX; x <= maxX; x++)
-        {
-            Position position = new(y, x);
-            Rectangle rect = camera.TileRectangle(position);
-            if (!visibility.HasBeenSeen(position))
+            if (lastRenderedPlayerPosition != player.Position)
             {
-                using SolidBrush black = new(Color.FromArgb(255, 3, 4, 7));
-                g.FillRectangle(black, rect);
-                continue;
+                int dx = player.Position.X - lastRenderedPlayerPosition.X;
+                int dy = player.Position.Y - lastRenderedPlayerPosition.Y;
+                if (Math.Abs(dx) >= Math.Abs(dy) && dx != 0)
+                    playerFacing = dx > 0 ? Direction.Right : Direction.Left;
+                else if (dy != 0)
+                    playerFacing = dy > 0 ? Direction.Down : Direction.Up;
+                lastRenderedPlayerPosition = player.Position;
             }
 
-            if (dungeon[position].Type == TileType.Floor)
-                assets.DrawFloorBlock(g, rect);
-            else
-                assets.DrawTile(g, dungeon[position].Type, rect, x, y);
+            int minX = camera.X;
+            int maxX = Math.Min(dungeon.Width - 1, camera.X + camera.ViewWidthTiles - 1);
+            int minY = camera.Y;
+            int maxY = Math.Min(dungeon.Height - 1, camera.Y + camera.ViewHeightTiles - 1);
 
-            if (!visibility.IsVisible(position))
+            for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
             {
-                using SolidBrush fog = new(Color.FromArgb(175, 4, 5, 8));
-                g.FillRectangle(fog, rect);
+                Position position = new(y, x);
+                Rectangle rect = camera.TileRectangle(position);
+                if (!visibility.HasBeenSeen(position))
+                {
+                    using SolidBrush black = new(Color.FromArgb(255, 3, 4, 7));
+                    g.FillRectangle(black, rect);
+                    continue;
+                }
+
+                if (dungeon[position].Type == TileType.Floor)
+                    assets.DrawFloorBlock(g, rect);
+                else
+                    assets.DrawTile(g, dungeon[position].Type, rect, x, y);
+
+                if (!visibility.IsVisible(position))
+                {
+                    using SolidBrush fog = new(Color.FromArgb(175, 4, 5, 8));
+                    g.FillRectangle(fog, rect);
+                }
+                else
+                {
+                    DrawDepthTint(g, rect, player.DungeonLevel);
+                    DrawEntities(g, position, rect);
+                }
             }
-            else
+
+            if (visibility.IsVisible(player.Position))
             {
-                DrawDepthTint(g, rect, player.DungeonLevel);
-                DrawEntities(g, position, rect);
+                Rectangle playerTile = camera.TileRectangle(player.Position);
+                DrawPlayerEnergy(g, playerTile);
+                assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 30), playerFacing, player.Alive);
             }
+
+            if (runOver || victory) DrawDeathOverlay(g);
         }
-
-        if (visibility.IsVisible(player.Position))
+        finally
         {
-            Rectangle playerTile = camera.TileRectangle(player.Position);
-            DrawPlayerEnergy(g, playerTile);
-            assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 15), playerFacing, player.Alive);
+            g.Restore(worldState);
         }
-
-        if (runOver || victory) DrawDeathOverlay(g);
     }
 
     private void DrawEntities(Graphics g, Position position, Rectangle rect)
@@ -208,7 +242,7 @@ public sealed partial class Game
         Monster? monster = dungeon.MonsterAt(position);
         if (monster != null)
         {
-            int size = monster.IsBoss ? 28 : 15;
+            int size = monster.IsBoss ? 56 : 30;
             assets.DrawMonster(g, CenteredSpriteRect(rect, size), monster);
             DrawMonsterMarker(g, rect, monster);
             return;
@@ -216,9 +250,9 @@ public sealed partial class Game
 
         Tile tile = dungeon[position];
         if (tile.GearLoot.Count > 0)
-            assets.DrawGear(g, CenteredSpriteRect(rect, 14), tile.GearLoot[^1]);
+            assets.DrawGear(g, CenteredSpriteRect(rect, 28), tile.GearLoot[^1]);
         else if (tile.HasItem)
-            assets.DrawPotion(g, CenteredSpriteRect(rect, 14));
+            assets.DrawPotion(g, CenteredSpriteRect(rect, 28));
     }
 
     private static Color DepthBackgroundColor(int level)
@@ -244,29 +278,33 @@ public sealed partial class Game
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
     {
-        int size = monster.IsBoss ? 4 : 3;
+        int size = monster.IsBoss ? 6 : 4;
         using SolidBrush marker = new(Color.FromArgb(monster.IsBoss ? 235 : 205, 190, 45, 40));
-        g.FillEllipse(marker, tile.Right - size - 1, tile.Y + 1, size, size);
+        g.FillEllipse(marker, tile.Right - size - 2, tile.Y + 2, size, size);
     }
 
     private static void DrawPlayerEnergy(Graphics g, Rectangle tile)
     {
         using SolidBrush glow = new(Color.FromArgb(80, 75, 165, 205));
-        g.FillEllipse(glow, tile.X + 1, tile.Bottom - 5, tile.Width - 2, 4);
+        g.FillEllipse(glow, tile.X + 2, tile.Bottom - 7, tile.Width - 4, 5);
     }
 
     private void DrawDeathOverlay(Graphics g)
     {
         using SolidBrush shade = new(Color.FromArgb(190, 0, 0, 0));
-        g.FillRectangle(shade, 0, 0, 640, 256);
-        using Font title = new("Segoe UI", 22, FontStyle.Bold);
-        using Font body = new("Segoe UI", 10, FontStyle.Bold);
+        g.FillRectangle(shade, 0, 0, WorldPixelWidth, WorldPixelHeight);
+        using Font title = new("Segoe UI", 42, FontStyle.Bold);
+        using Font body = new("Segoe UI", 18, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         string heading = victory ? "MORIA CONQUERED" : "YOU DIED";
         string detail = victory ? $"Legacy Gold earned: {lastRunReward}" : $"Legacy Gold recovered: {lastRunReward}";
-        g.DrawString(heading, title, text, 214, 95);
-        g.DrawString(detail, body, text, 244, 132);
-        g.DrawString("N: New Run    ESC: Quit", body, text, 242, 154);
+        float headingX = (WorldPixelWidth - g.MeasureString(heading, title).Width) / 2f;
+        float detailX = (WorldPixelWidth - g.MeasureString(detail, body).Width) / 2f;
+        g.DrawString(heading, title, text, headingX, 285);
+        g.DrawString(detail, body, text, detailX, 350);
+        string hint = "N: New Run    ESC: Quit";
+        float hintX = (WorldPixelWidth - g.MeasureString(hint, body).Width) / 2f;
+        g.DrawString(hint, body, text, hintX, 395);
     }
 
     protected override void OnPaint(PaintEventArgs e)
