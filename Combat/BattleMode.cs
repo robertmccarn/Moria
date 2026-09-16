@@ -1,15 +1,18 @@
 using System.Drawing;
 using System.Windows.Forms;
 using Moria.Art;
+using Moria.Combat;
 using Moria.Core;
 using Moria.Entities;
+using Moria.Input;
 using Moria.UI;
 
 namespace Moria;
 
 public sealed partial class Game
 {
-    private TurnBasedBattle? CurrentBattle { get; set; }
+    internal TurnBasedBattle? CurrentBattle { get; private set; }
+    internal int BattleMenuIndex => battleMenuIndex;
     private BattleOverlayControl? battleOverlay;
     private int battleMenuIndex;
 
@@ -232,7 +235,8 @@ internal sealed class BattleOverlayControl : Control
         using SolidBrush text = new(UiTheme.Text);
         string heading = battle.Phase == BattlePhase.PlayerTurn ? "YOUR TURN" : "ENEMY TURN";
         g.DrawString(heading, phase, gold, 820, 125);
-        g.DrawString(battle.Message, new Font("Segoe UI", 10, FontStyle.Bold), text, 820, 150);
+        using Font message = new("Segoe UI", 10, FontStyle.Bold);
+        g.DrawString(battle.Message, message, text, 820, 150);
     }
 
     private void DrawCommandWindow(Graphics g, TurnBasedBattle battle)
