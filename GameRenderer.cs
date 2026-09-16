@@ -33,7 +33,8 @@ public sealed partial class Game
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.SmoothingMode = SmoothingMode.None;
 
-        using SolidBrush mapBackground = new(Color.FromArgb(4, 5, 7));
+        Color depthBackground = DepthBackgroundColor(player.DungeonLevel);
+        using SolidBrush mapBackground = new(depthBackground);
         g.FillRectangle(mapBackground, 0, 0, MapWidth, MapHeight);
 
         if (lastRenderedLevel < 0)
@@ -68,33 +69,52 @@ public sealed partial class Game
 
             if (!tile.Seen)
             {
-                using SolidBrush unseen = new(Color.FromArgb(4, 5, 7));
+                using SolidBrush unseen = new(depthBackground);
                 g.FillRectangle(unseen, rect);
                 continue;
             }
 
             assets.DrawTile(g, tile.Type, rect, x, y);
+            DrawDepthTint(g, rect, player.DungeonLevel);
 
             if (tile.GearLoot.Count > 0)
-                assets.DrawGear(g, CenteredSpriteRect(rect, 34), tile.GearLoot[^1]);
+                assets.DrawGear(g, CenteredSpriteRect(rect, 28), tile.GearLoot[^1]);
             else if (tile.HasItem)
-                assets.DrawPotion(g, CenteredSpriteRect(rect, 32));
+                assets.DrawPotion(g, CenteredSpriteRect(rect, 26));
 
             Monster? monster = dungeon.MonsterAt(p);
             if (monster != null)
             {
-                assets.DrawMonster(g, CenteredSpriteRect(rect, 36), monster);
+                assets.DrawMonster(g, CenteredSpriteRect(rect, monster.IsBoss ? 48 : 28), monster);
                 DrawMonsterMarker(g, rect, monster);
             }
         }
 
         Rectangle playerTile = ScreenRect(player.Position.X, player.Position.Y, cameraX);
-        Rectangle playerRect = CenteredSpriteRect(playerTile, 38);
+        Rectangle playerRect = CenteredSpriteRect(playerTile, 30);
 
         DrawPlayerEnergy(g, playerTile);
         assets.DrawPlayer(g, playerRect, playerFacing, player.Alive);
 
         if (runOver) DrawDeathOverlay(g);
+    }
+
+    private static Color DepthBackgroundColor(int level)
+    {
+        double progress = Math.Clamp((level - 1) / (double)(Dungeon.MaximumDepth - 1), 0.0, 1.0);
+        int red = 4 + (int)Math.Round(progress * 22);
+        int green = 5 - (int)Math.Round(progress * 4);
+        int blue = 7 - (int)Math.Round(progress * 4);
+        return Color.FromArgb(red, Math.Max(1, green), Math.Max(2, blue));
+    }
+
+    private static void DrawDepthTint(Graphics g, Rectangle rect, int level)
+    {
+        double progress = Math.Clamp((level - 1) / (double)(Dungeon.MaximumDepth - 1), 0.0, 1.0);
+        int alpha = (int)Math.Round(progress * 82);
+        if (alpha <= 0) return;
+        using SolidBrush tint = new(Color.FromArgb(alpha, 150, 10, 10));
+        g.FillRectangle(tint, rect);
     }
 
     private static Rectangle ScreenRect(int worldX, int worldY, int cameraX) =>
@@ -174,10 +194,11 @@ public sealed partial class Game
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
     {
-        using SolidBrush marker = new(Color.FromArgb(210, 180, 45, 45));
-        g.FillEllipse(marker, tile.X + TileSize - 9, tile.Y + 3, 6, 6);
+        int markerSize = monster.IsBoss ? 8 : 6;
+        using SolidBrush marker = new(Color.FromArgb(monster.IsBoss ? 235 : 210, 190, 35, 35));
+        g.FillEllipse(marker, tile.X + TileSize - markerSize - 3, tile.Y + 3, markerSize, markerSize);
 
-        using Font font = new("Segoe UI", 7.5f, FontStyle.Bold);
+        using Font font = new("Segoe UI", monster.IsBoss ? 8.5f : 7.5f, FontStyle.Bold);
         using SolidBrush text = new(Color.FromArgb(235, 235, 235));
         SizeF size = g.MeasureString(monster.Name, font);
         float labelX = tile.X + (TileSize - size.Width) / 2f;
