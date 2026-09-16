@@ -5,8 +5,8 @@ namespace Moria.World;
 
 public sealed class Dungeon
 {
-    public const int StartingWidth = 160;
-    public const int StartingHeight = 160;
+    public const int StartingWidth = 80;
+    public const int StartingHeight = 80;
     public const int MaximumWidth = 360;
     public const int MaximumHeight = 360;
     public const int MaximumDepth = 50;
@@ -109,8 +109,18 @@ public sealed class Dungeon
     private void SetDimensions(int level)
     {
         double progress = (level - 1) / (double)(MaximumDepth - 1);
-        Width = StartingWidth + (int)Math.Round((MaximumWidth - StartingWidth) * progress);
-        Height = StartingHeight + (int)Math.Round((MaximumHeight - StartingHeight) * progress);
+        double startingArea = StartingWidth * StartingHeight;
+        double maximumArea = MaximumWidth * MaximumHeight;
+        double targetArea = startingArea + (maximumArea - startingArea) * progress;
+
+        // Keep dungeon area on the same progression as before, but vary its shape.
+        // The aspect ratio is constrained to 1:2 through 2:1.
+        double aspectRatio = 0.5 + random.NextDouble() * 1.5;
+        double width = Math.Sqrt(targetArea * aspectRatio);
+        double height = Math.Sqrt(targetArea / aspectRatio);
+
+        Width = Math.Clamp((int)Math.Round(width), 40, MaximumWidth);
+        Height = Math.Clamp((int)Math.Round(height), 40, MaximumHeight);
     }
 
     private void AllocateTiles()
