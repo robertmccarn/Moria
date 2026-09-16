@@ -11,7 +11,6 @@ public sealed class Player : Actor
     public int Intelligence { get; set; } = 10;
     public int Wisdom { get; set; } = 10;
     public int Gold { get; set; } = 100;
-    public int Food { get; set; } = 10;
     public int Mana { get; set; } = 5;
     public int MaxMana { get; set; } = 5;
     public int DungeonLevel { get; set; } = 1;
@@ -33,7 +32,6 @@ public sealed class Player : Actor
         Attack += legacyGold / 250;
         MaxHp += (legacyGold / 500) * 2;
         Hp = MaxHp;
-        Inventory.Add(new Item("Rations", '%', 5, 0, 0, ItemKind.Food));
         Weapon = new Gear("Iron Longsword", '†', GearSlot.Weapon, 2, 0, 0, 35);
     }
 
