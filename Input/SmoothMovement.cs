@@ -14,8 +14,8 @@ public sealed partial class Game
     private const float PlayerMoveSpeed = 7.5f;
     private const float PlayerCollisionRadius = 0.28f;
     private const int PlayerAttackCooldownMilliseconds = 350;
-    private const float PlayerRollDistance = 1.4f;
-    private const float PlayerRollDurationSeconds = 0.14f;
+    private const float PlayerRollDistance = 2.25f;
+    private const float PlayerRollDurationSeconds = 0.18f;
 
     private long lastPlayerAttackMilliseconds;
     private Position lastMovementTile;
