@@ -20,7 +20,7 @@ public sealed class VisibilityMap
 
     public bool IsVisible(Position p) => Inside(p) && visible[p.Y, p.X];
     public bool HasBeenSeen(Position p) => Inside(p) && seen[p.Y, p.X];
-    public void ClearVisible() => Array.Clear(visible);
+    public void ClearVisible() => Array.Clear(visible, 0, visible.Length);
 
     public void Reveal(Position p)
     {
