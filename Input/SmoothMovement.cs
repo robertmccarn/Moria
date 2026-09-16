@@ -152,12 +152,10 @@ public sealed partial class Game
         if (monster == null || !monster.Alive)
             return;
 
-        long elapsed = CurrentRunElapsed.Ticks / TimeSpan.TicksPerMillisecond;
-        if (elapsed - lastPlayerAttackMilliseconds < PlayerAttackCooldownMilliseconds)
+        if (CurrentBattle != null)
             return;
 
-        lastPlayerAttackMilliseconds = elapsed;
-        Attack(monster);
+        BeginBattle(monster);
     }
 
     private void HandleMovementTile(Position tile)
