@@ -6,6 +6,7 @@ using Moria.Core;
 using Moria.Entities;
 using Moria.Input;
 using Moria.UI;
+using Moria.World;
 
 namespace Moria;
 
