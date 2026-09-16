@@ -25,6 +25,11 @@ public sealed partial class Game
             return;
 
         CurrentRunElapsed = runClock.Elapsed;
+        battleOverlay?.Invalidate();
+
+        if (CurrentBattle != null)
+            return;
+
         ProcessPlayerMovement();
 
         long elapsed = CurrentRunElapsed.Ticks / TimeSpan.TicksPerMillisecond;
