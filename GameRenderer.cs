@@ -21,7 +21,7 @@ public sealed partial class Game
         get
         {
             int visibleColumns = MapWidth / TileSize;
-            int maxCamera = Math.Max(0, Dungeon.Width - visibleColumns);
+            int maxCamera = Math.Max(0, dungeon.Width - visibleColumns);
             int desired = player.Position.X - visibleColumns / 2;
             return Math.Clamp(desired, 0, maxCamera);
         }
@@ -58,9 +58,9 @@ public sealed partial class Game
 
         int cameraX = CameraX;
         int firstColumn = cameraX;
-        int lastColumn = Math.Min(Dungeon.Width - 1, cameraX + MapWidth / TileSize);
+        int lastColumn = Math.Min(dungeon.Width - 1, cameraX + MapWidth / TileSize);
 
-        for (int y = 0; y < Dungeon.Height; y++)
+        for (int y = 0; y < dungeon.Height; y++)
         for (int x = firstColumn; x <= lastColumn; x++)
         {
             Position p = new(y, x);
