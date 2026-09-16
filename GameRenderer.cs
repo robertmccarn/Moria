@@ -27,9 +27,8 @@ public sealed partial class Game
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.Half;
             DrawWorld(g);
-            uiRenderer.Draw(g, player, message, runOver, lastRunReward);
+            uiRenderer.Draw(g, player, message, runOver, victory, lastRunReward);
         }
-
         virtualCanvas.Present(target, frame);
     }
 
@@ -67,8 +66,7 @@ public sealed partial class Game
             }
 
             assets.DrawTile(g, dungeon[position].Type, rect, x, y);
-            bool lit = visibility.IsVisible(position);
-            if (!lit)
+            if (!visibility.IsVisible(position))
             {
                 using SolidBrush fog = new(Color.FromArgb(170, 4, 5, 8));
                 g.FillRectangle(fog, rect);
@@ -82,12 +80,12 @@ public sealed partial class Game
 
         if (visibility.IsVisible(player.Position))
         {
-            Rectangle playerRect = camera.TileRectangle(player.Position);
-            DrawPlayerEnergy(g, playerRect);
-            assets.DrawPlayer(g, CenteredSpriteRect(playerRect, 15), playerFacing, player.Alive);
+            Rectangle playerTile = camera.TileRectangle(player.Position);
+            DrawPlayerEnergy(g, playerTile);
+            assets.DrawPlayer(g, CenteredSpriteRect(playerTile, 15), playerFacing, player.Alive);
         }
 
-        if (runOver)
+        if (runOver || victory)
             DrawDeathOverlay(g);
     }
 
@@ -128,10 +126,8 @@ public sealed partial class Game
         g.FillRectangle(tint, rect);
     }
 
-    private static Rectangle CenteredSpriteRect(Rectangle tile, int size)
-    {
-        return new Rectangle(tile.X + (tile.Width - size) / 2, tile.Y + (tile.Height - size) / 2, size, size);
-    }
+    private static Rectangle CenteredSpriteRect(Rectangle tile, int size) =>
+        new(tile.X + (tile.Width - size) / 2, tile.Y + (tile.Height - size) / 2, size, size);
 
     private static void DrawMonsterMarker(Graphics g, Rectangle tile, Monster monster)
     {
@@ -153,9 +149,9 @@ public sealed partial class Game
         using Font title = new("Segoe UI", 22, FontStyle.Bold);
         using SolidBrush text = new(Color.Gainsboro);
         using SolidBrush gold = new(Color.FromArgb(255, 215, 90));
-        g.DrawString("YOU DIED", title, text, 265, 112);
+        g.DrawString(victory ? "MORIA CONQUERED" : "YOU DIED", title, victory ? gold : text, victory ? 232 : 265, 112);
         using Font body = new("Segoe UI", 8, FontStyle.Bold);
-        g.DrawString($"DEPTH {player.DungeonLevel}    +{LastRunReward} LEGACY GOLD", body, gold, 225, 140);
+        g.DrawString(victory ? "BALROG SLAIN" : $"DEPTH {player.DungeonLevel}    +{LastRunReward} LEGACY GOLD", body, victory ? gold : text, 225, 140);
         g.DrawString("ENTER / SPACE / N  NEW RUN", body, text, 235, 158);
     }
 
