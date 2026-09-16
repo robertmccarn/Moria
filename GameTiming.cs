@@ -10,11 +10,13 @@ public sealed partial class Game
     private long lastMonsterTickMilliseconds;
 
     public TimeSpan RunElapsed => runClock.Elapsed;
+    public static TimeSpan CurrentRunElapsed { get; private set; }
 
     private void ResetRealTimeClock()
     {
         runClock.Restart();
         lastMonsterTickMilliseconds = 0;
+        CurrentRunElapsed = TimeSpan.Zero;
     }
 
     private void ProcessRealTime()
@@ -22,7 +24,8 @@ public sealed partial class Game
         if (!started || runOver || victory || !player.Alive)
             return;
 
-        long elapsed = runClock.ElapsedMilliseconds;
+        CurrentRunElapsed = runClock.Elapsed;
+        long elapsed = CurrentRunElapsed.Ticks / TimeSpan.TicksPerMillisecond;
         if (elapsed - lastMonsterTickMilliseconds < MonsterTickMilliseconds)
             return;
 
