@@ -13,11 +13,9 @@ public sealed partial class Game
     // the slower pace of the original tile-by-tile roguelike movement.
     private const float PlayerMoveSpeed = 7.5f;
     private const float PlayerCollisionRadius = 0.28f;
-    private const int PlayerAttackCooldownMilliseconds = 350;
     private const float PlayerRollDistance = 2.25f;
     private const float PlayerRollDurationSeconds = 0.18f;
 
-    private long lastPlayerAttackMilliseconds;
     private Position lastMovementTile;
     private bool playerRolling;
     private float rollRemainingDistance;
@@ -83,95 +81,70 @@ public sealed partial class Game
     private void ProcessRoll()
     {
         long now = CurrentRunElapsed.Ticks / TimeSpan.TicksPerMillisecond;
-        float secondsRemaining = Math.Max(0f, (rollEndMilliseconds - now) / 1000f);
-        float secondsThisFrame = Math.Min(0.05f, Math.Max(0f, secondsRemaining));
-        float desiredStep = rollRemainingDistance * (secondsRemaining <= 0f ? 1f : Math.Min(1f, secondsThisFrame / secondsRemaining));
-        desiredStep = Math.Min(desiredStep, rollRemainingDistance);
-
-        if (desiredStep > 0f)
-        {
-            float oldX = player.WorldPosition.X;
-            float oldY = player.WorldPosition.Y;
-            MovePlayerWorld(rollDirectionX * desiredStep, rollDirectionY * desiredStep);
-            float moved = MathF.Abs(player.WorldPosition.X - oldX) + MathF.Abs(player.WorldPosition.Y - oldY);
-            rollRemainingDistance -= moved;
-        }
-
-        if (rollRemainingDistance <= 0.01f || now >= rollEndMilliseconds)
+        if (now >= rollEndMilliseconds || rollRemainingDistance <= 0f)
         {
             playerRolling = false;
-            rollRemainingDistance = 0f;
+            return;
         }
+
+        float totalDuration = PlayerRollDurationSeconds;
+        float remainingMilliseconds = rollEndMilliseconds - now;
+        float distanceThisFrame = PlayerRollDistance / totalDuration * 0.05f;
+        distanceThisFrame = Math.Min(distanceThisFrame, rollRemainingDistance);
+        MovePlayerWorld(rollDirectionX * distanceThisFrame, rollDirectionY * distanceThisFrame);
+        rollRemainingDistance -= distanceThisFrame;
+
+        if (CurrentBattle != null)
+            playerRolling = false;
     }
 
     private void MovePlayerWorld(float dx, float dy)
     {
-        float nextX = player.WorldPosition.X + dx;
-        float nextY = player.WorldPosition.Y + dy;
+        if (CurrentBattle != null)
+            return;
 
-        if (CanOccupy(nextX, player.WorldPosition.Y))
-            player.WorldPosition = new PointF(nextX, player.WorldPosition.Y);
-        if (CanOccupy(player.WorldPosition.X, nextY))
-            player.WorldPosition = new PointF(player.WorldPosition.X, nextY);
+        PointF current = player.WorldPosition;
+        PointF next = new(current.X + dx, current.Y + dy);
+        int targetX = (int)MathF.Round(next.X);
+        int targetY = (int)MathF.Round(next.Y);
+        Position targetTile = new(targetY, targetX);
 
-        Position currentTile = player.Position;
-        if (currentTile == lastMovementTile)
+        if (!dungeon.IsWalkable(targetTile))
+            return;
+
+        Monster? monster = dungeon.MonsterAt(targetTile);
+        if (monster != null)
         {
-            TryAttackFromMovement();
+            TryAttackFromMovement(monster);
             return;
         }
 
-        lastMovementTile = currentTile;
-        RecalculateVisibility(7);
-        HandleMovementTile(currentTile);
-        TryAttackFromMovement();
+        player.WorldPosition = next;
+        Position currentTile = new((int)MathF.Round(next.Y), (int)MathF.Round(next.X));
+        if (currentTile != lastMovementTile)
+        {
+            lastMovementTile = currentTile;
+            RecalculateVisibility(7);
+            Tile tile = dungeon[currentTile];
+            if (tile.Type == TileType.Trap)
+            {
+                int damage = new Random().Next(1, 5);
+                player.Hp -= damage;
+                SetMessage($"A trap wounds you for {damage}!");
+            }
+            else if (currentTile == dungeon.DownStairs)
+            {
+                SetMessage("You found the stairs down. Press E to descend.");
+            }
+            AutoLoot();
+        }
     }
 
-    private bool CanOccupy(float x, float y)
+    private void TryAttackFromMovement(Monster monster)
     {
-        float r = PlayerCollisionRadius;
-        return IsWalkableWorldPoint(x - r, y - r) &&
-               IsWalkableWorldPoint(x + r, y - r) &&
-               IsWalkableWorldPoint(x - r, y + r) &&
-               IsWalkableWorldPoint(x + r, y + r);
-    }
-
-    private bool IsWalkableWorldPoint(float x, float y)
-    {
-        Position tile = WorldToTile(x, y);
-        return dungeon.IsWalkable(tile);
-    }
-
-    private static Position WorldToTile(float x, float y) => new(
-        (int)MathF.Floor(y + 0.5f),
-        (int)MathF.Floor(x + 0.5f));
-
-    private void TryAttackFromMovement()
-    {
-        Monster? monster = dungeon.MonsterAt(player.Position);
-        if (monster == null || !monster.Alive)
-            return;
-
         if (CurrentBattle != null)
             return;
 
         BeginBattle(monster);
-    }
-
-    private void HandleMovementTile(Position tile)
-    {
-        Tile current = dungeon[tile];
-        if (current.Type == TileType.Trap)
-        {
-            int damage = random.Next(1, 5);
-            player.Hp -= damage;
-            SetMessage($"A trap wounds you for {damage}!");
-        }
-        else if (tile == dungeon.DownStairs)
-        {
-            SetMessage("You found the stairs down. Press E to descend.");
-        }
-
-        AutoLoot();
     }
 }
