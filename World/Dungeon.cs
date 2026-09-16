@@ -8,7 +8,7 @@ public sealed class Dungeon
     public const int StartingWidth = 80;
     public const int StartingHeight = 22;
     public const int MaximumWidth = 180;
-    public const int MaximumHeight = 28;
+    public const int MaximumHeight = 27;
     public const int MaximumDepth = 50;
 
     private Tile[,] tiles = null!;
@@ -93,12 +93,7 @@ public sealed class Dungeon
             tiles[y, x] = new Tile();
     }
 
-    private Room FindNearestRoom(Room room)
-    {
-        return rooms
-            .OrderBy(r => Distance(room.Center, r.Center))
-            .First();
-    }
+    private Room FindNearestRoom(Room room) => rooms.OrderBy(r => Distance(room.Center, r.Center)).First();
 
     private void AddLoopConnections(int level)
     {
@@ -107,8 +102,7 @@ public sealed class Dungeon
         {
             Room a = rooms[random.Next(rooms.Count)];
             Room b = rooms[random.Next(rooms.Count)];
-            if (a == b) continue;
-            Connect(a.Center, b.Center);
+            if (a != b) Connect(a.Center, b.Center);
         }
     }
 
@@ -125,9 +119,7 @@ public sealed class Dungeon
 
             for (int step = 0; step < length; step++)
             {
-                if (!IsInside(p)) break;
-                if (this[p].Type == TileType.Floor) break;
-
+                if (!IsInside(p) || this[p].Type == TileType.Floor) break;
                 CarveCorridor(p);
                 p = p.Step(direction);
                 stepsSinceTurn++;
@@ -141,29 +133,23 @@ public sealed class Dungeon
         }
     }
 
-    private Position StepFromRoom(Room room, Direction direction)
+    private Position StepFromRoom(Room room, Direction direction) => direction switch
     {
-        return direction switch
-        {
-            Direction.Up => new Position(room.Y - 1, room.X + room.Width / 2),
-            Direction.Down => new Position(room.Y + room.Height, room.X + room.Width / 2),
-            Direction.Left => new Position(room.Y + room.Height / 2, room.X - 1),
-            Direction.Right => new Position(room.Y + room.Height / 2, room.X + room.Width),
-            _ => room.Center
-        };
-    }
+        Direction.Up => new Position(room.Y - 1, room.X + room.Width / 2),
+        Direction.Down => new Position(room.Y + room.Height, room.X + room.Width / 2),
+        Direction.Left => new Position(room.Y + room.Height / 2, room.X - 1),
+        Direction.Right => new Position(room.Y + room.Height / 2, room.X + room.Width),
+        _ => room.Center
+    };
 
-    private static Direction Turn(Direction direction, bool clockwise)
+    private static Direction Turn(Direction direction, bool clockwise) => direction switch
     {
-        return direction switch
-        {
-            Direction.Up => clockwise ? Direction.Right : Direction.Left,
-            Direction.Right => clockwise ? Direction.Down : Direction.Up,
-            Direction.Down => clockwise ? Direction.Left : Direction.Right,
-            Direction.Left => clockwise ? Direction.Up : Direction.Down,
-            _ => direction
-        };
-    }
+        Direction.Up => clockwise ? Direction.Right : Direction.Left,
+        Direction.Right => clockwise ? Direction.Down : Direction.Up,
+        Direction.Down => clockwise ? Direction.Left : Direction.Right,
+        Direction.Left => clockwise ? Direction.Up : Direction.Down,
+        _ => direction
+    };
 
     private static int Distance(Position a, Position b) => Math.Abs(a.Y - b.Y) + Math.Abs(a.X - b.X);
 
